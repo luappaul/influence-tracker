@@ -1,65 +1,1372 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useState, useMemo, useEffect } from 'react';
+import { Card, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { useShopifyData } from '@/lib/hooks/use-shopify-data';
+import { useAuth } from '@/lib/auth-context';
+import { formatCurrency } from '@/lib/utils';
+import {
+  calculateIntelligentAttribution,
+  calculateSeasonalBaseline,
+  AttributionResult,
+} from '@/lib/attribution';
+import {
+  Loader2,
+  ShoppingBag,
+  Package,
+  TrendingUp,
+  Users,
+  Calendar,
+  ChevronDown,
+  ArrowRight,
+  BarChart3,
+  Megaphone,
+  ArrowUpRight,
+  ArrowDownRight,
+  Clock,
+  UserPlus,
+  Tag,
+  Zap,
+  Info
+} from 'lucide-react';
+import Link from 'next/link';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  ReferenceArea,
+  ReferenceLine,
+  ComposedChart,
+  Area,
+  Scatter,
+  Cell,
+} from 'recharts';
+
+type DateRange = 'this_month' | 'last_month' | 'this_year' | 'last_30_days' | 'last_7_days';
+
+interface PostCommenter {
+  username: string;
+  fullName: string;
+  profilePicUrl: string;
+  comment: string;
+  matchedWithBuyer?: boolean;
+  matchedOrderId?: string;
+}
+
+interface ScrapedPost {
+  id: string;
+  shortCode: string;
+  caption: string;
+  url: string;
+  commentsCount: number;
+  likesCount: number;
+  timestamp: string;
+  type: string;
+  displayUrl: string;
+  videoUrl?: string;
+  mentionsProduct?: boolean | null;
+  commenters?: PostCommenter[];
+  commentersScrapedAt?: string;
+}
+
+interface CampaignInfluencer {
+  id: string;
+  username: string;
+  fullName: string;
+  profilePicUrl: string;
+  followersCount: number;
+  budget: number;
+  campaignStartDate?: string;
+  campaignDays?: number;
+  scrapedPosts?: ScrapedPost[];
+  lastScrapedAt?: string;
+}
+
+interface Campaign {
+  id: string;
+  name: string;
+  status: 'active' | 'completed' | 'draft';
+  influencers: CampaignInfluencer[];
+  totalBudget: number;
+  createdAt: string;
+}
+
+interface InfluencerStats {
+  username: string;
+  fullName: string;
+  profilePicUrl: string;
+  followersCount: number;
+  budget: number;
+  productPosts: number;
+  totalPosts: number;
+  impressions: number;
+  likes: number;
+  comments: number;
+  attributedSales: number;
+  attributedRevenue: number;
+  roi: number;
+  // Signaux d'attribution intelligents
+  signals: {
+    temporal: number;      // Revenue attribué par corrélation temporelle
+    newCustomer: number;   // Revenue de nouveaux clients
+    productMatch: number;  // Revenue avec correspondance produit
+    anomaly: number;       // Revenue pendant pics détectés
+    baseline: number;      // Revenue baseline résiduel
+  };
+  confidence: number;      // Score de confiance 0-1
+}
+
+const dateRangeLabels: Record<DateRange, string> = {
+  this_month: 'Ce mois',
+  last_month: 'Mois dernier',
+  this_year: 'Cette année',
+  last_30_days: '30 derniers jours',
+  last_7_days: '7 derniers jours',
+};
+
+function getDateRange(range: DateRange): { start: Date; end: Date } {
+  const now = new Date();
+  const end = new Date(now);
+  let start = new Date(now);
+
+  switch (range) {
+    case 'this_month':
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+    case 'last_month':
+      start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      end.setDate(0);
+      break;
+    case 'this_year':
+      start = new Date(now.getFullYear(), 0, 1);
+      break;
+    case 'last_30_days':
+      start.setDate(now.getDate() - 30);
+      break;
+    case 'last_7_days':
+      start.setDate(now.getDate() - 7);
+      break;
+  }
+
+  return { start, end };
+}
+
+export default function Dashboard() {
+  const { user } = useAuth();
+  const { orders, isLoading } = useShopifyData();
+  const [dateRange, setDateRange] = useState<DateRange>('last_30_days');
+  const [showDateMenu, setShowDateMenu] = useState(false);
+  const [chartType, setChartType] = useState<'bar' | 'line'>('line');
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [showCampaignMenu, setShowCampaignMenu] = useState(false);
+  const [showLikesOnChart, setShowLikesOnChart] = useState(false);
+
+  // Charger les campagnes depuis localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem('campaigns');
+    if (stored) {
+      setCampaigns(JSON.parse(stored));
+    }
+  }, []);
+
+  const selectedCampaign = campaigns.find(c => c.id === selectedCampaignId);
+
+  // Calculer les dates de la campagne sélectionnée
+  const campaignPeriod = useMemo(() => {
+    if (!selectedCampaign) return null;
+
+    // Trouver la date de début la plus ancienne et la date de fin la plus tardive
+    let earliestStart: Date | null = null;
+    let latestEnd: Date | null = null;
+
+    selectedCampaign.influencers.forEach(inf => {
+      if (inf.campaignStartDate && inf.campaignDays) {
+        const start = new Date(inf.campaignStartDate);
+        const end = new Date(start);
+        end.setDate(end.getDate() + inf.campaignDays);
+
+        if (!earliestStart || start < earliestStart) earliestStart = start;
+        if (!latestEnd || end > latestEnd) latestEnd = end;
+      }
+    });
+
+    if (!earliestStart || !latestEnd) return null;
+
+    const start = earliestStart as Date;
+    const end = latestEnd as Date;
+
+    return {
+      start,
+      end,
+      startStr: start.toISOString().split('T')[0],
+      endStr: end.toISOString().split('T')[0],
+    };
+  }, [selectedCampaign]);
+
+  // Filtrer les commandes par date
+  const filteredOrders = useMemo(() => {
+    const { start, end } = getDateRange(dateRange);
+    return orders.filter((order) => {
+      const orderDate = new Date(order.created_at);
+      return orderDate >= start && orderDate <= end;
+    });
+  }, [orders, dateRange]);
+
+  // Calculer les stats globales
+  const stats = useMemo(() => {
+    const totalRevenue = filteredOrders.reduce(
+      (sum, order) => sum + parseFloat(order.total_price || '0'),
+      0
+    );
+    const totalOrders = filteredOrders.length;
+    const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+    const productIds = new Set<number>();
+    filteredOrders.forEach((order) => {
+      order.line_items?.forEach((item) => {
+        productIds.add(item.product_id);
+      });
+    });
+
+    return {
+      totalRevenue,
+      totalOrders,
+      averageOrderValue,
+      totalProducts: productIds.size,
+    };
+  }, [filteredOrders]);
+
+  // Calculer la baseline (moyenne journalière des 30 jours avant la campagne)
+  const baselineData = useMemo(() => {
+    if (!campaignPeriod) return null;
+
+    const { start } = campaignPeriod;
+    const BASELINE_DAYS = 30;
+
+    // 30 jours avant le début de la campagne
+    const baselineStart = new Date(start);
+    baselineStart.setDate(baselineStart.getDate() - BASELINE_DAYS);
+
+    const baselineOrders = orders.filter(order => {
+      const orderDate = new Date(order.created_at);
+      return orderDate >= baselineStart && orderDate < start;
+    });
+
+    const baselineRevenue = baselineOrders.reduce(
+      (sum, order) => sum + parseFloat(order.total_price || '0'),
+      0
+    );
+
+    // Moyenne journalière
+    const dailyBaseline = baselineRevenue / BASELINE_DAYS;
+
+    return {
+      totalRevenue: baselineRevenue,
+      dailyAverage: dailyBaseline,
+      days: BASELINE_DAYS,
+      ordersCount: baselineOrders.length,
+    };
+  }, [campaignPeriod, orders]);
+
+  // Calculer les stats pendant la campagne avec baseline
+  const campaignStats = useMemo(() => {
+    if (!campaignPeriod || !baselineData) return null;
+
+    const { start, end } = campaignPeriod;
+
+    // Revenue pendant la campagne
+    const campaignOrders = orders.filter(order => {
+      const orderDate = new Date(order.created_at);
+      return orderDate >= start && orderDate <= end;
+    });
+    const campaignRevenue = campaignOrders.reduce(
+      (sum, order) => sum + parseFloat(order.total_price || '0'),
+      0
+    );
+
+    // Nombre de jours de campagne
+    const campaignDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+
+    // Revenue attendu sans campagne (baseline × jours)
+    const expectedRevenue = baselineData.dailyAverage * campaignDays;
+
+    // Impact incrémental de la campagne
+    const incrementalRevenue = Math.max(0, campaignRevenue - expectedRevenue);
+
+    // Variation vs baseline
+    const variation = expectedRevenue > 0
+      ? ((campaignRevenue - expectedRevenue) / expectedRevenue) * 100
+      : campaignRevenue > 0 ? 100 : 0;
+
+    return {
+      campaignRevenue,
+      campaignOrders: campaignOrders.length,
+      expectedRevenue,
+      incrementalRevenue,
+      campaignDays,
+      variation,
+      roi: selectedCampaign?.totalBudget && incrementalRevenue > 0
+        ? ((incrementalRevenue - selectedCampaign.totalBudget) / selectedCampaign.totalBudget) * 100
+        : selectedCampaign?.totalBudget
+        ? -100
+        : 0,
+    };
+  }, [campaignPeriod, orders, selectedCampaign, baselineData]);
+
+  // Attribution intelligente
+  const attributionResult = useMemo((): AttributionResult | null => {
+    if (!selectedCampaign || !campaignPeriod) return null;
+
+    return calculateIntelligentAttribution(
+      orders,
+      selectedCampaign.influencers,
+      campaignPeriod.start,
+      campaignPeriod.end
+    );
+  }, [selectedCampaign, campaignPeriod, orders]);
+
+  // Calculer les stats par influenceur (CRM) avec attribution intelligente
+  const influencerStats = useMemo((): InfluencerStats[] => {
+    if (!selectedCampaign || !attributionResult) return [];
+
+    return selectedCampaign.influencers.map(influencer => {
+      const productPosts = influencer.scrapedPosts?.filter(p => p.mentionsProduct === true) || [];
+      const allPosts = influencer.scrapedPosts || [];
+
+      // Impressions = followers × nombre de posts produit
+      const impressions = productPosts.length * influencer.followersCount;
+
+      // Likes et comments des posts produit
+      const likes = productPosts.reduce((sum, p) => sum + p.likesCount, 0);
+      const comments = productPosts.reduce((sum, p) => sum + p.commentsCount, 0);
+
+      // Récupérer l'attribution intelligente pour cet influenceur
+      const attribution = attributionResult.influencers.find(i => i.username === influencer.username);
+
+      const attributedRevenue = attribution?.totalAttributedRevenue || 0;
+      const attributedSales = Math.round(attribution?.totalAttributedOrders || 0);
+
+      // Signaux d'attribution
+      const signals = attribution?.signals || {
+        temporal: 0,
+        newCustomer: 0,
+        productMatch: 0,
+        anomaly: 0,
+        baseline: 0,
+      };
+
+      // Score de confiance
+      const confidence = attributedRevenue > 0
+        ? (signals.temporal + signals.newCustomer + signals.productMatch) / attributedRevenue
+        : 0;
+
+      // ROI = (Revenue attribué - Budget) / Budget × 100
+      const roi = influencer.budget > 0
+        ? ((attributedRevenue - influencer.budget) / influencer.budget) * 100
+        : 0;
+
+      return {
+        username: influencer.username,
+        fullName: influencer.fullName,
+        profilePicUrl: influencer.profilePicUrl,
+        followersCount: influencer.followersCount,
+        budget: influencer.budget,
+        productPosts: productPosts.length,
+        totalPosts: allPosts.length,
+        impressions,
+        likes,
+        comments,
+        attributedSales,
+        attributedRevenue,
+        roi,
+        signals,
+        confidence,
+      };
+    });
+  }, [selectedCampaign, attributionResult]);
+
+  // Totaux pour le tableau CRM
+  const influencerTotals = useMemo(() => {
+    return influencerStats.reduce(
+      (acc, inf) => ({
+        impressions: acc.impressions + inf.impressions,
+        likes: acc.likes + inf.likes,
+        comments: acc.comments + inf.comments,
+        attributedSales: acc.attributedSales + inf.attributedSales,
+        attributedRevenue: acc.attributedRevenue + inf.attributedRevenue,
+        budget: acc.budget + inf.budget,
+        signals: {
+          temporal: acc.signals.temporal + inf.signals.temporal,
+          newCustomer: acc.signals.newCustomer + inf.signals.newCustomer,
+          productMatch: acc.signals.productMatch + inf.signals.productMatch,
+          anomaly: acc.signals.anomaly + inf.signals.anomaly,
+          baseline: acc.signals.baseline + inf.signals.baseline,
+        },
+      }),
+      {
+        impressions: 0,
+        likes: 0,
+        comments: 0,
+        attributedSales: 0,
+        attributedRevenue: 0,
+        budget: 0,
+        signals: { temporal: 0, newCustomer: 0, productMatch: 0, anomaly: 0, baseline: 0 },
+      }
+    );
+  }, [influencerStats]);
+
+  // Données pour le graphique (revenue + likes des posts produit + baseline + markers influenceurs)
+  const chartData = useMemo(() => {
+    const grouped: Record<string, {
+      date: string;
+      revenue: number;
+      orders: number;
+      likes: number;
+      inCampaign: boolean;
+      baseline: number | null;
+      influencerMarker?: {
+        username: string;
+        profilePicUrl: string;
+        likes: number;
+      };
+    }> = {};
+
+    // D'abord les commandes
+    filteredOrders.forEach((order) => {
+      const date = order.created_at.split('T')[0];
+      if (!grouped[date]) {
+        grouped[date] = { date, revenue: 0, orders: 0, likes: 0, inCampaign: false, baseline: null };
+      }
+      grouped[date].revenue += parseFloat(order.total_price || '0');
+      grouped[date].orders += 1;
+
+      // Marquer si dans la période de campagne
+      if (campaignPeriod) {
+        const orderDate = new Date(date);
+        if (orderDate >= campaignPeriod.start && orderDate <= campaignPeriod.end) {
+          grouped[date].inCampaign = true;
+        }
+      }
+    });
+
+    // Ajouter les likes des posts produit si une campagne est sélectionnée
+    if (selectedCampaign) {
+      selectedCampaign.influencers.forEach(influencer => {
+        influencer.scrapedPosts?.forEach(post => {
+          if (post.mentionsProduct === true) {
+            const postDate = new Date(post.timestamp).toISOString().split('T')[0];
+            if (!grouped[postDate]) {
+              grouped[postDate] = { date: postDate, revenue: 0, orders: 0, likes: 0, inCampaign: true, baseline: null };
+            }
+            grouped[postDate].likes += post.likesCount;
+
+            // Ajouter le marker influenceur (on garde le dernier si plusieurs posts le même jour)
+            grouped[postDate].influencerMarker = {
+              username: influencer.username,
+              profilePicUrl: influencer.profilePicUrl,
+              likes: post.likesCount,
+            };
+          }
+        });
+      });
+    }
+
+    // Ajouter la baseline pour chaque jour de la campagne
+    if (baselineData && campaignPeriod) {
+      Object.keys(grouped).forEach(date => {
+        const d = new Date(date);
+        if (d >= campaignPeriod.start && d <= campaignPeriod.end) {
+          grouped[date].baseline = baselineData.dailyAverage;
+        }
+      });
+    }
+
+    return Object.values(grouped)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((item) => ({
+        ...item,
+        dateLabel: new Date(item.date).toLocaleDateString('fr-FR', {
+          day: 'numeric',
+          month: 'short',
+        }),
+      }));
+  }, [filteredOrders, campaignPeriod, selectedCampaign, baselineData]);
+
+  // Trouver les index de début et fin de campagne pour le graphique
+  const campaignChartRange = useMemo(() => {
+    if (!campaignPeriod || chartData.length === 0) return null;
+
+    const startIndex = chartData.findIndex(d => d.date >= campaignPeriod.startStr);
+    const endIndex = chartData.findIndex(d => d.date > campaignPeriod.endStr);
+
+    if (startIndex === -1) return null;
+
+    return {
+      startLabel: chartData[startIndex]?.dateLabel,
+      endLabel: chartData[endIndex === -1 ? chartData.length - 1 : endIndex - 1]?.dateLabel,
+    };
+  }, [chartData, campaignPeriod]);
+
+  // Données des posts influenceurs pour les markers sur le graphique
+  const influencerPostMarkers = useMemo(() => {
+    if (!selectedCampaign) return [];
+
+    const markers: Array<{
+      date: string;
+      dateLabel: string;
+      username: string;
+      profilePicUrl: string;
+      postCount: number;
+      totalLikes: number;
+    }> = [];
+
+    // Grouper les posts par date et influenceur
+    const postsByDateAndInfluencer: Record<string, Record<string, { count: number; likes: number; profilePicUrl: string }>> = {};
+
+    selectedCampaign.influencers.forEach(influencer => {
+      influencer.scrapedPosts?.forEach(post => {
+        if (post.mentionsProduct === true) {
+          const postDate = new Date(post.timestamp).toISOString().split('T')[0];
+
+          if (!postsByDateAndInfluencer[postDate]) {
+            postsByDateAndInfluencer[postDate] = {};
+          }
+          if (!postsByDateAndInfluencer[postDate][influencer.username]) {
+            postsByDateAndInfluencer[postDate][influencer.username] = {
+              count: 0,
+              likes: 0,
+              profilePicUrl: influencer.profilePicUrl,
+            };
+          }
+          postsByDateAndInfluencer[postDate][influencer.username].count += 1;
+          postsByDateAndInfluencer[postDate][influencer.username].likes += post.likesCount;
+        }
+      });
+    });
+
+    // Convertir en array de markers
+    Object.entries(postsByDateAndInfluencer).forEach(([date, influencers]) => {
+      Object.entries(influencers).forEach(([username, data]) => {
+        markers.push({
+          date,
+          dateLabel: new Date(date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }),
+          username,
+          profilePicUrl: data.profilePicUrl,
+          postCount: data.count,
+          totalLikes: data.likes,
+        });
+      });
+    });
+
+    return markers.sort((a, b) => a.date.localeCompare(b.date));
+  }, [selectedCampaign]);
+
+  const formatNumber = (num: number): string => {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-accent" />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <div className="space-y-6">
+      {/* Header avec filtres */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">
+            Bonjour{user?.name ? `, ${user.name}` : ''}
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="text-foreground-secondary">
+            Aperçu de vos ventes
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="flex items-center gap-3">
+          {/* Campaign selector */}
+          <div className="relative">
+            <Button
+              variant={selectedCampaign ? 'primary' : 'secondary'}
+              onClick={() => setShowCampaignMenu(!showCampaignMenu)}
+              className="min-w-[180px] justify-between"
+            >
+              <Megaphone className="w-4 h-4 mr-2" />
+              {selectedCampaign ? selectedCampaign.name : 'Sélectionner campagne'}
+              <ChevronDown className="w-4 h-4 ml-2" />
+            </Button>
+
+            {showCampaignMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowCampaignMenu(false)}
+                />
+                <div className="absolute right-0 top-full mt-2 z-50 w-64 bg-card border border-border rounded-lg shadow-lg py-1">
+                  <button
+                    onClick={() => {
+                      setSelectedCampaignId(null);
+                      setShowCampaignMenu(false);
+                    }}
+                    className={`w-full px-4 py-2 text-left text-sm hover:bg-background-secondary transition-colors ${
+                      !selectedCampaignId ? 'text-accent font-medium' : 'text-foreground'
+                    }`}
+                  >
+                    Aucune campagne
+                  </button>
+                  {campaigns.length > 0 && (
+                    <div className="border-t border-border my-1" />
+                  )}
+                  {campaigns.map((campaign) => (
+                    <button
+                      key={campaign.id}
+                      onClick={() => {
+                        setSelectedCampaignId(campaign.id);
+                        setShowCampaignMenu(false);
+                      }}
+                      className={`w-full px-4 py-2 text-left text-sm hover:bg-background-secondary transition-colors ${
+                        selectedCampaignId === campaign.id ? 'text-accent font-medium' : 'text-foreground'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="truncate">{campaign.name}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          campaign.status === 'active'
+                            ? 'bg-success/10 text-success'
+                            : 'bg-foreground-secondary/10 text-foreground-secondary'
+                        }`}>
+                          {campaign.status === 'active' ? 'Active' : 'Terminée'}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                  {campaigns.length === 0 && (
+                    <p className="px-4 py-2 text-sm text-foreground-secondary">
+                      Aucune campagne créée
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Date range selector */}
+          <div className="relative">
+            <Button
+              variant="secondary"
+              onClick={() => setShowDateMenu(!showDateMenu)}
+              className="min-w-[160px] justify-between"
+            >
+              <Calendar className="w-4 h-4 mr-2" />
+              {dateRangeLabels[dateRange]}
+              <ChevronDown className="w-4 h-4 ml-2" />
+            </Button>
+
+            {showDateMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowDateMenu(false)}
+                />
+                <div className="absolute right-0 top-full mt-2 z-50 w-48 bg-card border border-border rounded-lg shadow-lg py-1">
+                  {(Object.keys(dateRangeLabels) as DateRange[]).map((range) => (
+                    <button
+                      key={range}
+                      onClick={() => {
+                        setDateRange(range);
+                        setShowDateMenu(false);
+                      }}
+                      className={`w-full px-4 py-2 text-left text-sm hover:bg-background-secondary transition-colors ${
+                        dateRange === range ? 'text-accent font-medium' : 'text-foreground'
+                      }`}
+                    >
+                      {dateRangeLabels[range]}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
-      </main>
+      </div>
+
+      {/* Stats de la campagne sélectionnée */}
+      {selectedCampaign && campaignStats && baselineData && (
+        <Card className="bg-accent/5 border-accent/20">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <Megaphone className="w-5 h-5 text-accent" />
+              <h3 className="font-semibold text-foreground">
+                Impact de la campagne : {selectedCampaign.name}
+              </h3>
+            </div>
+            {attributionResult && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-foreground-secondary">Confiance:</span>
+                <span className={`font-semibold ${
+                  attributionResult.confidenceScore > 0.7 ? 'text-success' :
+                  attributionResult.confidenceScore > 0.4 ? 'text-warning' : 'text-danger'
+                }`}>
+                  {(attributionResult.confidenceScore * 100).toFixed(0)}%
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div>
+              <p className="text-sm text-foreground-secondary">CA réel</p>
+              <p className="text-xl font-semibold text-foreground">
+                {formatCurrency(campaignStats.campaignRevenue)}
+              </p>
+              <p className="text-xs text-foreground-secondary">
+                {campaignStats.campaignOrders} commandes
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-foreground-secondary">CA attendu (baseline)</p>
+              <p className="text-xl font-semibold text-foreground-secondary">
+                {formatCurrency(campaignStats.expectedRevenue)}
+              </p>
+              <p className="text-xs text-foreground-secondary">
+                {formatCurrency(baselineData.dailyAverage)}/jour × {campaignStats.campaignDays}j
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-foreground-secondary">Impact campagne</p>
+              <p className={`text-xl font-semibold ${
+                campaignStats.incrementalRevenue > 0 ? 'text-success' : 'text-foreground-secondary'
+              }`}>
+                +{formatCurrency(campaignStats.incrementalRevenue)}
+              </p>
+              <p className="text-xs text-foreground-secondary">
+                CA additionnel généré
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-foreground-secondary">Variation vs baseline</p>
+              <p className={`text-xl font-semibold flex items-center gap-1 ${
+                campaignStats.variation >= 0 ? 'text-success' : 'text-danger'
+              }`}>
+                {campaignStats.variation >= 0 ? (
+                  <ArrowUpRight className="w-5 h-5" />
+                ) : (
+                  <ArrowDownRight className="w-5 h-5" />
+                )}
+                {campaignStats.variation >= 0 ? '+' : ''}{campaignStats.variation.toFixed(1)}%
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-foreground-secondary">ROI</p>
+              <p className={`text-xl font-semibold ${
+                campaignStats.roi >= 0 ? 'text-success' : 'text-danger'
+              }`}>
+                {campaignStats.roi >= 0 ? '+' : ''}{campaignStats.roi.toFixed(0)}%
+              </p>
+              <p className="text-xs text-foreground-secondary">
+                Budget: {formatCurrency(selectedCampaign.totalBudget)}
+              </p>
+            </div>
+          </div>
+
+          {/* Signaux d'attribution */}
+          {attributionResult && attributionResult.totalAttributedRevenue > 0 && (
+            <div className="mt-4 pt-4 border-t border-accent/20">
+              <p className="text-xs font-medium text-foreground-secondary mb-2">
+                Signaux d'attribution détectés:
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {(() => {
+                  const totals = attributionResult.influencers.reduce(
+                    (acc, inf) => ({
+                      temporal: acc.temporal + inf.signals.temporal,
+                      newCustomer: acc.newCustomer + inf.signals.newCustomer,
+                      productMatch: acc.productMatch + inf.signals.productMatch,
+                      anomaly: acc.anomaly + inf.signals.anomaly,
+                      baseline: acc.baseline + inf.signals.baseline,
+                    }),
+                    { temporal: 0, newCustomer: 0, productMatch: 0, anomaly: 0, baseline: 0 }
+                  );
+                  return (
+                    <>
+                      {totals.temporal > 0 && (
+                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-info/10 text-info text-xs">
+                          <Clock className="w-3 h-3" />
+                          <span>Temporel: {formatCurrency(totals.temporal)}</span>
+                        </div>
+                      )}
+                      {totals.newCustomer > 0 && (
+                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-success/10 text-success text-xs">
+                          <UserPlus className="w-3 h-3" />
+                          <span>Nouveaux clients: {formatCurrency(totals.newCustomer)}</span>
+                        </div>
+                      )}
+                      {totals.productMatch > 0 && (
+                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-accent/10 text-accent text-xs">
+                          <Tag className="w-3 h-3" />
+                          <span>Produit mentionné: {formatCurrency(totals.productMatch)}</span>
+                        </div>
+                      )}
+                      {totals.anomaly > 0 && (
+                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-warning/10 text-warning text-xs">
+                          <Zap className="w-3 h-3" />
+                          <span>Pics détectés: {formatCurrency(totals.anomaly)}</span>
+                        </div>
+                      )}
+                      {totals.baseline > 0 && (
+                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-foreground-secondary/10 text-foreground-secondary text-xs">
+                          <BarChart3 className="w-3 h-3" />
+                          <span>Baseline: {formatCurrency(totals.baseline)}</span>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* KPIs */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center">
+              <TrendingUp className="w-6 h-6 text-accent" />
+            </div>
+            <div>
+              <p className="text-sm text-foreground-secondary">Chiffre d'affaires</p>
+              <p className="text-2xl font-semibold text-foreground">
+                {formatCurrency(stats.totalRevenue)}
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-lg bg-success/10 flex items-center justify-center">
+              <ShoppingBag className="w-6 h-6 text-success" />
+            </div>
+            <div>
+              <p className="text-sm text-foreground-secondary">Commandes</p>
+              <p className="text-2xl font-semibold text-foreground">{stats.totalOrders}</p>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-lg bg-info/10 flex items-center justify-center">
+              <Users className="w-6 h-6 text-info" />
+            </div>
+            <div>
+              <p className="text-sm text-foreground-secondary">Panier moyen</p>
+              <p className="text-2xl font-semibold text-foreground">
+                {formatCurrency(stats.averageOrderValue)}
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-lg bg-warning/10 flex items-center justify-center">
+              <Package className="w-6 h-6 text-warning" />
+            </div>
+            <div>
+              <p className="text-sm text-foreground-secondary">Produits vendus</p>
+              <p className="text-2xl font-semibold text-foreground">{stats.totalProducts}</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Graphique */}
+      <Card>
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <CardTitle>Évolution des ventes</CardTitle>
+            {selectedCampaign && campaignPeriod && (
+              <p className="text-sm text-foreground-secondary mt-1">
+                Période campagne surlignée en orange
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-4">
+            {/* Toggle Likes */}
+            {selectedCampaign && (
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showLikesOnChart}
+                  onChange={(e) => setShowLikesOnChart(e.target.checked)}
+                  className="w-4 h-4 rounded border-border text-accent focus:ring-accent"
+                />
+                <span className="text-sm text-foreground-secondary">Afficher likes</span>
+              </label>
+            )}
+            <div className="flex items-center gap-2">
+              <Button
+                variant={chartType === 'bar' ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setChartType('bar')}
+              >
+                Barres
+              </Button>
+              <Button
+                variant={chartType === 'line' ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setChartType('line')}
+              >
+                Ligne
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {chartData.length > 0 ? (
+          <div className="h-[350px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={chartData} margin={{ top: 40, right: 30, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
+                <XAxis dataKey="dateLabel" tick={{ fontSize: 12 }} />
+                <YAxis yAxisId="left" tick={{ fontSize: 12 }} tickFormatter={(v) => `${v}€`} />
+                {showLikesOnChart && (
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} tickFormatter={(v) => formatNumber(v)} />
+                )}
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const data = payload[0]?.payload;
+                    return (
+                      <div className="bg-card border border-border rounded-lg p-3 shadow-lg">
+                        <p className="font-medium text-foreground mb-2">{label}</p>
+                        <p className="text-sm text-foreground">
+                          CA: <span className="font-semibold">{formatCurrency(data?.revenue || 0)}</span>
+                        </p>
+                        {data?.baseline && (
+                          <p className="text-sm text-foreground-secondary">
+                            Baseline: {formatCurrency(data.baseline)}
+                          </p>
+                        )}
+                        {showLikesOnChart && data?.likes > 0 && (
+                          <p className="text-sm text-[#EC4899]">
+                            Likes: {formatNumber(data.likes)}
+                          </p>
+                        )}
+                        {data?.influencerMarker && (
+                          <div className="mt-2 pt-2 border-t border-border">
+                            <p className="text-xs text-accent">
+                              📸 Post de @{data.influencerMarker.username}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }}
+                />
+
+                {/* Zone de campagne */}
+                {campaignChartRange && (
+                  <ReferenceArea
+                    x1={campaignChartRange.startLabel}
+                    x2={campaignChartRange.endLabel}
+                    fill="#D97706"
+                    fillOpacity={0.1}
+                    stroke="#D97706"
+                    strokeOpacity={0.3}
+                    yAxisId="left"
+                  />
+                )}
+
+                {/* Ligne baseline (pointillée) */}
+                {baselineData && selectedCampaign && (
+                  <ReferenceLine
+                    yAxisId="left"
+                    y={baselineData.dailyAverage}
+                    stroke="#6B7280"
+                    strokeDasharray="5 5"
+                    strokeWidth={2}
+                    label={{
+                      value: `Baseline: ${formatCurrency(baselineData.dailyAverage)}/jour`,
+                      position: 'insideTopLeft',
+                      fill: '#6B7280',
+                      fontSize: 11,
+                    }}
+                  />
+                )}
+
+                {/* Area entre baseline et revenue (impact) */}
+                {selectedCampaign && chartType === 'line' && (
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="revenue"
+                    fill="#10B981"
+                    fillOpacity={0.2}
+                    stroke="none"
+                  />
+                )}
+
+                {/* Barres ou Ligne pour le CA */}
+                {chartType === 'bar' ? (
+                  <Bar
+                    yAxisId="left"
+                    dataKey="revenue"
+                    radius={[4, 4, 0, 0]}
+                  >
+                    {chartData.map((entry, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={entry.inCampaign ? '#D97706' : '#9CA3AF'}
+                      />
+                    ))}
+                  </Bar>
+                ) : (
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="revenue"
+                    stroke="#D97706"
+                    strokeWidth={2}
+                    dot={(props: any) => {
+                      const { cx, cy, payload, index } = props;
+                      if (payload?.influencerMarker) {
+                        // Afficher la photo de l'influenceur
+                        return (
+                          <g key={`marker-${payload.date}`}>
+                            <circle cx={cx} cy={cy} r={16} fill="white" stroke="#D97706" strokeWidth={2} />
+                            <clipPath id={`clip-${payload.date}`}>
+                              <circle cx={cx} cy={cy} r={14} />
+                            </clipPath>
+                            <image
+                              x={cx - 14}
+                              y={cy - 14}
+                              width={28}
+                              height={28}
+                              href={payload.influencerMarker.profilePicUrl
+                                ? `/api/proxy-image?url=${encodeURIComponent(payload.influencerMarker.profilePicUrl)}`
+                                : ''
+                              }
+                              clipPath={`url(#clip-${payload.date})`}
+                              style={{ borderRadius: '50%' }}
+                            />
+                          </g>
+                        );
+                      }
+                      return (
+                        <circle
+                          key={`dot-${payload?.date || index}`}
+                          cx={cx}
+                          cy={cy}
+                          r={4}
+                          fill={payload?.inCampaign ? '#D97706' : '#9CA3AF'}
+                        />
+                      );
+                    }}
+                  />
+                )}
+
+                {/* Likes */}
+                {showLikesOnChart && (
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="likes"
+                    stroke="#EC4899"
+                    strokeWidth={2}
+                    dot={{ fill: '#EC4899', r: 3 }}
+                  />
+                )}
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="h-[350px] flex items-center justify-center text-foreground-secondary">
+            Aucune donnée pour cette période
+          </div>
+        )}
+
+        {/* Légende */}
+        <div className="flex items-center justify-center gap-6 mt-4 text-sm flex-wrap">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-[#D97706]" />
+            <span className="text-foreground-secondary">CA (période campagne)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-[#9CA3AF]" />
+            <span className="text-foreground-secondary">CA (hors campagne)</span>
+          </div>
+          {selectedCampaign && (
+            <>
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-0.5 bg-[#6B7280]" style={{ borderTop: '2px dashed #6B7280' }} />
+                <span className="text-foreground-secondary">Baseline</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded-full border-2 border-[#D97706] bg-white" />
+                <span className="text-foreground-secondary">Post influenceur</span>
+              </div>
+            </>
+          )}
+          {showLikesOnChart && (
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-[#EC4899]" />
+              <span className="text-foreground-secondary">Likes</span>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Tableau CRM des influenceurs quand une campagne est sélectionnée */}
+      {selectedCampaign && influencerStats.length > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <CardTitle>Performance par influenceur</CardTitle>
+              <p className="text-sm text-foreground-secondary mt-1">
+                Attribution intelligente basée sur l'analyse des signaux
+              </p>
+            </div>
+            <Link href={`/campaigns/${selectedCampaign.id}`}>
+              <Button variant="secondary" size="sm">
+                Voir détails
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </Link>
+          </div>
+
+          {/* Header du tableau */}
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border text-sm text-foreground-secondary">
+                  <th className="text-left py-3 px-2 font-medium">Influenceur</th>
+                  <th className="text-center py-3 px-2 font-medium">Posts</th>
+                  <th className="text-center py-3 px-2 font-medium">Engagement</th>
+                  <th className="text-center py-3 px-2 font-medium">Ventes</th>
+                  <th className="text-center py-3 px-2 font-medium">CA attribué</th>
+                  <th className="text-center py-3 px-2 font-medium">Signaux</th>
+                  <th className="text-center py-3 px-2 font-medium">Budget</th>
+                  <th className="text-center py-3 px-2 font-medium">ROI</th>
+                </tr>
+              </thead>
+              <tbody>
+                {influencerStats.map((inf) => (
+                  <tr
+                    key={inf.username}
+                    className="border-b border-border/50 hover:bg-background-secondary/50 transition-colors"
+                  >
+                    {/* Influenceur */}
+                    <td className="py-3 px-2">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+                          {inf.profilePicUrl ? (
+                            <img
+                              src={`/api/proxy-image?url=${encodeURIComponent(inf.profilePicUrl)}`}
+                              alt={inf.username}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span className="text-xs font-medium text-accent">
+                              {inf.username.slice(0, 2).toUpperCase()}
+                            </span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground truncate">
+                            {inf.fullName || inf.username}
+                          </p>
+                          <p className="text-xs text-foreground-secondary">
+                            @{inf.username}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Posts */}
+                    <td className="py-3 px-2 text-center">
+                      <span className="text-sm font-medium text-foreground">
+                        {inf.productPosts}
+                      </span>
+                      <span className="text-xs text-foreground-secondary">
+                        /{inf.totalPosts}
+                      </span>
+                    </td>
+
+                    {/* Engagement */}
+                    <td className="py-3 px-2 text-center">
+                      <div className="flex flex-col items-center">
+                        <span className="text-sm text-foreground">
+                          {formatNumber(inf.likes + inf.comments)}
+                        </span>
+                        <span className="text-xs text-foreground-secondary">
+                          {formatNumber(inf.likes)} ❤️ {formatNumber(inf.comments)} 💬
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Ventes */}
+                    <td className="py-3 px-2 text-center">
+                      <div className="flex flex-col items-center">
+                        <span className={`text-sm font-medium ${inf.attributedSales > 0 ? 'text-success' : 'text-foreground-secondary'}`}>
+                          {inf.attributedSales}
+                        </span>
+                        <span className={`text-xs ${
+                          inf.confidence > 0.7 ? 'text-success' :
+                          inf.confidence > 0.4 ? 'text-warning' : 'text-foreground-secondary'
+                        }`}>
+                          {(inf.confidence * 100).toFixed(0)}% confiance
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* CA attribué */}
+                    <td className="py-3 px-2 text-center">
+                      <span className={`text-sm font-medium ${inf.attributedRevenue > 0 ? 'text-success' : 'text-foreground-secondary'}`}>
+                        {formatCurrency(inf.attributedRevenue)}
+                      </span>
+                    </td>
+
+                    {/* Signaux */}
+                    <td className="py-3 px-2">
+                      <div className="flex flex-wrap justify-center gap-1">
+                        {inf.signals.temporal > 0 && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-info/10 text-info text-xs" title={`Temporel: ${formatCurrency(inf.signals.temporal)}`}>
+                            <Clock className="w-3 h-3" />
+                          </span>
+                        )}
+                        {inf.signals.newCustomer > 0 && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-success/10 text-success text-xs" title={`Nouveaux clients: ${formatCurrency(inf.signals.newCustomer)}`}>
+                            <UserPlus className="w-3 h-3" />
+                          </span>
+                        )}
+                        {inf.signals.productMatch > 0 && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-accent/10 text-accent text-xs" title={`Produit mentionné: ${formatCurrency(inf.signals.productMatch)}`}>
+                            <Tag className="w-3 h-3" />
+                          </span>
+                        )}
+                        {inf.signals.anomaly > 0 && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-warning/10 text-warning text-xs" title={`Pics: ${formatCurrency(inf.signals.anomaly)}`}>
+                            <Zap className="w-3 h-3" />
+                          </span>
+                        )}
+                        {inf.signals.baseline > 0 && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-foreground-secondary/10 text-foreground-secondary text-xs" title={`Baseline: ${formatCurrency(inf.signals.baseline)}`}>
+                            <BarChart3 className="w-3 h-3" />
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Budget */}
+                    <td className="py-3 px-2 text-center">
+                      <span className="text-sm text-foreground">
+                        {formatCurrency(inf.budget)}
+                      </span>
+                    </td>
+
+                    {/* ROI */}
+                    <td className="py-3 px-2 text-center">
+                      <span className={`inline-flex items-center gap-1 text-sm font-semibold ${
+                        inf.roi > 0 ? 'text-success' : inf.roi < 0 ? 'text-danger' : 'text-foreground-secondary'
+                      }`}>
+                        {inf.roi > 0 ? (
+                          <ArrowUpRight className="w-4 h-4" />
+                        ) : inf.roi < 0 ? (
+                          <ArrowDownRight className="w-4 h-4" />
+                        ) : null}
+                        {inf.roi > 0 ? '+' : ''}{inf.roi.toFixed(0)}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+
+                {/* Totaux */}
+                <tr className="bg-background-secondary/50 font-medium">
+                  <td className="py-3 px-2 text-foreground">Total</td>
+                  <td className="py-3 px-2 text-center text-foreground">
+                    {influencerStats.reduce((sum, i) => sum + i.productPosts, 0)}
+                  </td>
+                  <td className="py-3 px-2 text-center text-foreground">
+                    {formatNumber(influencerTotals.likes + influencerTotals.comments)}
+                  </td>
+                  <td className="py-3 px-2 text-center text-success font-semibold">
+                    {influencerTotals.attributedSales}
+                  </td>
+                  <td className="py-3 px-2 text-center text-success font-semibold">
+                    {formatCurrency(influencerTotals.attributedRevenue)}
+                  </td>
+                  <td className="py-3 px-2"></td>
+                  <td className="py-3 px-2 text-center text-foreground">
+                    {formatCurrency(influencerTotals.budget)}
+                  </td>
+                  <td className="py-3 px-2 text-center">
+                    {influencerTotals.budget > 0 && (
+                      <span className={`font-semibold ${
+                        influencerTotals.attributedRevenue > influencerTotals.budget ? 'text-success' : 'text-danger'
+                      }`}>
+                        {((influencerTotals.attributedRevenue - influencerTotals.budget) / influencerTotals.budget * 100).toFixed(0)}%
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Note explicative */}
+          <div className="mt-4 p-3 rounded-lg bg-info/5 border border-info/20">
+            <div className="flex items-start gap-2">
+              <Info className="w-4 h-4 text-info mt-0.5 flex-shrink-0" />
+              <div className="text-xs text-info">
+                <strong>Attribution intelligente sans friction:</strong>
+                <div className="flex flex-wrap gap-3 mt-2">
+                  <span className="inline-flex items-center gap-1"><Clock className="w-3 h-3" /> Temporel = Achat dans les 48h après un post</span>
+                  <span className="inline-flex items-center gap-1"><UserPlus className="w-3 h-3" /> Nouveau = Premier achat du client</span>
+                  <span className="inline-flex items-center gap-1"><Tag className="w-3 h-3" /> Produit = Correspond au produit mentionné</span>
+                  <span className="inline-flex items-center gap-1"><Zap className="w-3 h-3" /> Pic = Ventes anormalement élevées</span>
+                  <span className="inline-flex items-center gap-1"><BarChart3 className="w-3 h-3" /> Baseline = Répartition par engagement</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Accès aux campagnes */}
+      <Link href="/campaigns">
+        <Card className="bg-accent/5 border-accent/20 hover:bg-accent/10 transition-colors cursor-pointer">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center">
+                <BarChart3 className="w-6 h-6 text-accent" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-foreground">Campagnes d'influence</h3>
+                <p className="text-sm text-foreground-secondary">
+                  {campaigns.length} campagne{campaigns.length > 1 ? 's' : ''} · Gérez vos influenceurs et analysez l'impact
+                </p>
+              </div>
+            </div>
+            <ArrowRight className="w-5 h-5 text-accent" />
+          </div>
+        </Card>
+      </Link>
     </div>
   );
 }
