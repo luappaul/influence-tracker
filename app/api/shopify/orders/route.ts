@@ -60,23 +60,43 @@ function generateDemoOrders() {
   return orders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
+// Récupérer les credentials Shopify (env vars ou cookie)
+async function getShopifyCredentials(): Promise<{ store: string; accessToken: string } | null> {
+  // 1. D'abord essayer les variables d'environnement (legacy app / direct token)
+  const envStore = process.env.SHOPIFY_STORE_DOMAIN;
+  const envToken = process.env.SHOPIFY_ACCESS_TOKEN;
+
+  if (envStore && envToken) {
+    console.log('Using Shopify credentials from environment variables');
+    return { store: envStore, accessToken: envToken };
+  }
+
+  // 2. Sinon, essayer le cookie utilisateur (OAuth flow)
+  const cookieStore = await cookies();
+  const userCookie = cookieStore.get('influence_tracker_user');
+
+  if (userCookie) {
+    try {
+      const user = JSON.parse(userCookie.value);
+      if (user.shopifyStore && user.shopifyAccessToken) {
+        console.log('Using Shopify credentials from user cookie');
+        return { store: user.shopifyStore, accessToken: user.shopifyAccessToken };
+      }
+    } catch {
+      // Cookie invalide
+    }
+  }
+
+  return null;
+}
+
 export async function GET(request: NextRequest) {
   try {
-    // Récupérer l'utilisateur depuis le cookie
-    const cookieStore = await cookies();
-    const userCookie = cookieStore.get('influence_tracker_user');
+    const credentials = await getShopifyCredentials();
 
-    if (!userCookie) {
-      // Retourner les données de démo si pas authentifié
-      console.log('No auth cookie, returning demo orders');
-      return NextResponse.json({ orders: generateDemoOrders(), isDemo: true });
-    }
-
-    const user = JSON.parse(userCookie.value);
-
-    if (!user.shopifyStore || !user.shopifyAccessToken) {
-      // Retourner les données de démo si Shopify pas connecté
-      console.log('No Shopify connection, returning demo orders');
+    if (!credentials) {
+      // Retourner les données de démo si pas de credentials
+      console.log('No Shopify credentials, returning demo orders');
       return NextResponse.json({ orders: generateDemoOrders(), isDemo: true });
     }
 
@@ -88,7 +108,7 @@ export async function GET(request: NextRequest) {
     const createdAtMax = searchParams.get('created_at_max') || '';
 
     // Construire l'URL de l'API Shopify
-    let url = `https://${user.shopifyStore}/admin/api/${API_VERSION}/orders.json?limit=${limit}&status=${status}`;
+    let url = `https://${credentials.store}/admin/api/${API_VERSION}/orders.json?limit=${limit}&status=${status}`;
 
     if (createdAtMin) {
       url += `&created_at_min=${createdAtMin}`;
@@ -97,22 +117,24 @@ export async function GET(request: NextRequest) {
       url += `&created_at_max=${createdAtMax}`;
     }
 
+    console.log('Fetching orders from Shopify:', credentials.store);
+
     const response = await fetch(url, {
       headers: {
-        'X-Shopify-Access-Token': user.shopifyAccessToken,
+        'X-Shopify-Access-Token': credentials.accessToken,
         'Content-Type': 'application/json',
       },
     });
 
     if (!response.ok) {
       const error = await response.text();
-      console.error('Shopify orders error:', error);
+      console.error('Shopify orders error:', response.status, error);
       // Retourner les données de démo en cas d'erreur Shopify
-      console.log('Shopify API error, returning demo orders');
-      return NextResponse.json({ orders: generateDemoOrders(), isDemo: true });
+      return NextResponse.json({ orders: generateDemoOrders(), isDemo: true, error: `Shopify API error: ${response.status}` });
     }
 
     const data = await response.json();
+    console.log(`Successfully fetched ${data.orders?.length || 0} orders from Shopify`);
     return NextResponse.json(data);
   } catch (error) {
     console.error('Orders API error:', error);
