@@ -18,6 +18,8 @@ export function AppLayout({ children }: AppLayoutProps) {
     pathname === '/login' ||
     pathname === '/reset-password' ||
     pathname === '/onboarding' ||
+    pathname === '/privacy' ||
+    pathname === '/terms' ||
     pathname.startsWith('/collab/');
 
   if (isPublicPage) {

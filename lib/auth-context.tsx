@@ -177,7 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const handleRedirects = () => {
       if (!mounted || isLoading) return;
 
-      const publicPaths = ['/login', '/reset-password'];
+      const publicPaths = ['/login', '/reset-password', '/privacy', '/terms'];
       const isPublicPath = publicPaths.some(p => pathname === p) || pathname.startsWith('/api/') || pathname.startsWith('/collab/');
       const isOnboardingPath = pathname === '/onboarding';
 
