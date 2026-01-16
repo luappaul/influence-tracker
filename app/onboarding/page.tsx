@@ -22,11 +22,28 @@ type OnboardingStep = 'welcome' | 'shopify' | 'social' | 'complete';
 function OnboardingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, updateUser } = useAuth();
-  const [currentStep, setCurrentStep] = useState<OnboardingStep>('welcome');
+  const { user, updateUser, isLoading } = useAuth();
+  const [currentStep, setCurrentStep] = useState<OnboardingStep>(() => {
+    // Restore step from localStorage if available
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('onboarding-step');
+      if (saved && ['welcome', 'shopify', 'social'].includes(saved)) {
+        return saved as OnboardingStep;
+      }
+    }
+    return 'welcome';
+  });
   const [isConnectingShopify, setIsConnectingShopify] = useState(false);
   const [instagramConnected, setInstagramConnected] = useState(false);
   const [instagramUsername, setInstagramUsername] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Persist current step to localStorage
+  useEffect(() => {
+    if (currentStep !== 'complete') {
+      localStorage.setItem('onboarding-step', currentStep);
+    }
+  }, [currentStep]);
 
   // Check for Instagram OAuth callback
   useEffect(() => {
@@ -42,7 +59,7 @@ function OnboardingContent() {
 
     if (error) {
       console.error('Instagram OAuth error:', error);
-      // Could show a toast/alert here
+      alert('Erreur lors de la connexion Instagram. Veuillez réessayer.');
     }
   }, [searchParams]);
 
@@ -71,12 +88,22 @@ function OnboardingContent() {
   };
 
   const completeOnboarding = async () => {
-    // Mark onboarding as completed
-    if (user) {
-      await updateUser({ ...user, onboardingCompleted: true });
+    if (isSaving) return;
+    setIsSaving(true);
+
+    try {
+      // Mark onboarding as completed
+      if (user) {
+        await updateUser({ ...user, onboardingCompleted: true });
+      }
+      // Clean up localStorage
+      localStorage.removeItem('onboarding-step');
+      // Redirect to new campaign page
+      router.push('/campaigns/new');
+    } catch (error) {
+      console.error('Error completing onboarding:', error);
+      setIsSaving(false);
     }
-    // Redirect to new campaign page
-    router.push('/campaigns/new');
   };
 
   const steps = [
@@ -298,13 +325,23 @@ function OnboardingContent() {
               </button>
 
               <div className="pt-4 flex flex-col gap-2">
-                <Button onClick={completeOnboarding} size="lg" className="w-full">
-                  Terminer la configuration
-                  <ArrowRight className="w-5 h-5 ml-2" />
+                <Button onClick={completeOnboarding} size="lg" className="w-full" disabled={isSaving}>
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Enregistrement...
+                    </>
+                  ) : (
+                    <>
+                      Terminer la configuration
+                      <ArrowRight className="w-5 h-5 ml-2" />
+                    </>
+                  )}
                 </Button>
                 <button
                   onClick={handleSkipSocial}
-                  className="w-full text-sm text-foreground-secondary hover:text-foreground flex items-center justify-center gap-1 py-2"
+                  disabled={isSaving}
+                  className="w-full text-sm text-foreground-secondary hover:text-foreground flex items-center justify-center gap-1 py-2 disabled:opacity-50"
                 >
                   <SkipForward className="w-4 h-4" />
                   Configurer plus tard
