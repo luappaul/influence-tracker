@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Search, SlidersHorizontal, Instagram, Plus, TrendingUp, TrendingDown, Minus, BarChart3 } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { Input } from '@/components/ui/input';
@@ -17,50 +17,92 @@ import {
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { getInfluencersWithHistory, InfluencerWithHistory } from '@/lib/mock-data';
 import {
   formatNumber,
   formatCurrency,
 } from '@/lib/utils';
 import Link from 'next/link';
+import { useUserCampaigns, useUserInfluencers, SavedInfluencer } from '@/lib/hooks/use-user-data';
 
-type SortField = 'roi' | 'revenue' | 'campaigns' | 'followers';
+// Type pour les influenceurs agrégés (avec historique campagnes)
+interface AggregatedInfluencer {
+  id: string;
+  username: string;
+  fullName: string;
+  profilePicUrl: string;
+  followersCount: number;
+  addedAt: string;
+  campaigns: { id: string; name: string; budget: number; date: string }[];
+  totalBudget: number;
+}
+
+type SortField = 'budget' | 'campaigns' | 'followers';
 type SortDirection = 'asc' | 'desc';
 
 export default function InfluencersPage() {
   const [search, setSearch] = useState('');
-  const [sortField, setSortField] = useState<SortField>('roi');
+  const [sortField, setSortField] = useState<SortField>('campaigns');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [view, setView] = useState<'grid' | 'table'>('table');
+  const { campaigns } = useUserCampaigns();
+  const { influencers: savedInfluencers, deleteInfluencer } = useUserInfluencers();
 
-  // Récupérer uniquement les influenceurs avec historique de campagnes
-  const influencersWithHistory = getInfluencersWithHistory();
+  // Agréger les influenceurs sauvegardés avec leur historique de campagnes
+  const influencersWithHistory = useMemo(() => {
+    // Créer un map des campagnes par influenceur
+    const campaignsByInfluencer = new Map<string, { id: string; name: string; budget: number; date: string }[]>();
+    const budgetByInfluencer = new Map<string, number>();
+
+    campaigns.forEach(campaign => {
+      campaign.influencers?.forEach((inf: any) => {
+        const existing = campaignsByInfluencer.get(inf.username) || [];
+        existing.push({
+          id: campaign.id,
+          name: campaign.name,
+          budget: inf.budget || 0,
+          date: campaign.createdAt,
+        });
+        campaignsByInfluencer.set(inf.username, existing);
+
+        const currentBudget = budgetByInfluencer.get(inf.username) || 0;
+        budgetByInfluencer.set(inf.username, currentBudget + (inf.budget || 0));
+      });
+    });
+
+    // Enrichir les influenceurs sauvegardés avec leur historique
+    return savedInfluencers.map(inf => ({
+      id: inf.id,
+      username: inf.username,
+      fullName: inf.fullName,
+      profilePicUrl: inf.profilePicUrl,
+      followersCount: inf.followersCount,
+      addedAt: inf.addedAt,
+      campaigns: campaignsByInfluencer.get(inf.username) || [],
+      totalBudget: budgetByInfluencer.get(inf.username) || 0,
+    }));
+  }, [savedInfluencers, campaigns]);
 
   const filteredInfluencers = influencersWithHistory.filter(
     inf =>
       inf.username.toLowerCase().includes(search.toLowerCase()) ||
-      inf.displayName.toLowerCase().includes(search.toLowerCase())
+      inf.fullName.toLowerCase().includes(search.toLowerCase())
   );
 
   const sortedInfluencers = [...filteredInfluencers].sort((a, b) => {
     let aVal: number, bVal: number;
 
     switch (sortField) {
-      case 'roi':
-        aVal = a.averageRoi;
-        bVal = b.averageRoi;
-        break;
-      case 'revenue':
-        aVal = a.totalRevenue;
-        bVal = b.totalRevenue;
+      case 'budget':
+        aVal = a.totalBudget;
+        bVal = b.totalBudget;
         break;
       case 'campaigns':
-        aVal = a.campaignHistory.length;
-        bVal = b.campaignHistory.length;
+        aVal = a.campaigns.length;
+        bVal = b.campaigns.length;
         break;
       case 'followers':
-        aVal = a.followers;
-        bVal = b.followers;
+        aVal = a.followersCount;
+        bVal = b.followersCount;
         break;
     }
 
@@ -78,10 +120,7 @@ export default function InfluencersPage() {
 
   // Statistiques globales
   const totalBudget = influencersWithHistory.reduce((sum, i) => sum + i.totalBudget, 0);
-  const totalRevenue = influencersWithHistory.reduce((sum, i) => sum + i.totalRevenue, 0);
-  const avgRoi = influencersWithHistory.length > 0
-    ? influencersWithHistory.reduce((sum, i) => sum + i.averageRoi, 0) / influencersWithHistory.length
-    : 0;
+  const totalCampaigns = campaigns.length;
 
   return (
     <div className="space-y-8">
@@ -99,24 +138,18 @@ export default function InfluencersPage() {
       </div>
 
       {/* Stats globales */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="p-4">
           <p className="text-sm text-foreground-secondary">Influenceurs</p>
           <p className="text-2xl font-semibold text-foreground">{influencersWithHistory.length}</p>
         </Card>
         <Card className="p-4">
+          <p className="text-sm text-foreground-secondary">Campagnes</p>
+          <p className="text-2xl font-semibold text-foreground">{totalCampaigns}</p>
+        </Card>
+        <Card className="p-4">
           <p className="text-sm text-foreground-secondary">Budget total investi</p>
           <p className="text-2xl font-semibold text-foreground">{formatCurrency(totalBudget)}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-foreground-secondary">CA total généré</p>
-          <p className="text-2xl font-semibold text-success">{formatCurrency(totalRevenue)}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-foreground-secondary">ROI moyen</p>
-          <p className={`text-2xl font-semibold ${avgRoi >= 0 ? 'text-success' : 'text-danger'}`}>
-            {avgRoi >= 0 ? '+' : ''}{avgRoi.toFixed(0)}%
-          </p>
         </Card>
       </div>
 
@@ -165,81 +198,73 @@ export default function InfluencersPage() {
                 >
                   Campagnes
                 </TableHead>
-                <TableHead>Budget total</TableHead>
                 <TableHead
                   sortable
-                  sorted={sortField === 'revenue' ? sortDirection : false}
-                  onClick={() => handleSort('revenue')}
+                  sorted={sortField === 'budget' ? sortDirection : false}
+                  onClick={() => handleSort('budget')}
                 >
-                  CA généré
-                </TableHead>
-                <TableHead
-                  sortable
-                  sorted={sortField === 'roi' ? sortDirection : false}
-                  onClick={() => handleSort('roi')}
-                >
-                  ROI moyen
+                  Budget total
                 </TableHead>
                 <TableHead>Dernière campagne</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {sortedInfluencers.map(influencer => {
-                const lastCampaign = influencer.campaignHistory[influencer.campaignHistory.length - 1];
+                const lastCampaign = influencer.campaigns[influencer.campaigns.length - 1];
 
                 return (
-                  <TableRow key={influencer.id}>
+                  <TableRow key={influencer.username}>
                     <TableCell>
-                      <Link
-                        href={`/influencers/${influencer.id}`}
-                        className="flex items-center gap-3 hover:opacity-80"
-                      >
-                        <Avatar
-                          src={influencer.avatarUrl}
-                          alt={influencer.displayName}
-                          fallback={influencer.username}
-                          size="sm"
-                        />
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+                          {influencer.profilePicUrl ? (
+                            <img
+                              src={`/api/proxy-image?url=${encodeURIComponent(influencer.profilePicUrl)}`}
+                              alt={influencer.username}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span className="text-sm font-medium text-accent">
+                              {influencer.username.slice(0, 2).toUpperCase()}
+                            </span>
+                          )}
+                        </div>
                         <div>
                           <p className="font-medium text-foreground">
-                            {influencer.displayName}
+                            {influencer.fullName || influencer.username}
                           </p>
-                          <p className="text-sm text-foreground-secondary">
+                          <a
+                            href={`https://instagram.com/${influencer.username}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-accent hover:underline"
+                          >
                             @{influencer.username}
-                          </p>
+                          </a>
                         </div>
-                      </Link>
+                      </div>
                     </TableCell>
-                    <TableCell>{formatNumber(influencer.followers)}</TableCell>
+                    <TableCell>{formatNumber(influencer.followersCount)}</TableCell>
                     <TableCell>
                       <Badge variant="default">
-                        {influencer.campaignHistory.length} campagne{influencer.campaignHistory.length > 1 ? 's' : ''}
+                        {influencer.campaigns.length} campagne{influencer.campaigns.length > 1 ? 's' : ''}
                       </Badge>
                     </TableCell>
-                    <TableCell>{formatCurrency(influencer.totalBudget)}</TableCell>
-                    <TableCell className="font-medium text-success">
-                      {formatCurrency(influencer.totalRevenue)}
-                    </TableCell>
-                    <TableCell>
-                      <div className={`inline-flex items-center gap-1 font-semibold ${
-                        influencer.averageRoi >= 100 ? 'text-success' :
-                        influencer.averageRoi >= 0 ? 'text-warning' : 'text-danger'
-                      }`}>
-                        {influencer.averageRoi >= 100 ? (
-                          <TrendingUp className="w-4 h-4" />
-                        ) : influencer.averageRoi >= 0 ? (
-                          <Minus className="w-4 h-4" />
-                        ) : (
-                          <TrendingDown className="w-4 h-4" />
-                        )}
-                        {influencer.averageRoi >= 0 ? '+' : ''}{influencer.averageRoi.toFixed(0)}%
-                      </div>
+                    <TableCell className="font-medium">
+                      {formatCurrency(influencer.totalBudget)}
                     </TableCell>
                     <TableCell>
                       {lastCampaign && (
                         <div className="text-sm">
-                          <p className="text-foreground truncate max-w-[150px]">{lastCampaign.campaignName}</p>
-                          <p className="text-foreground-secondary">{lastCampaign.date}</p>
+                          <Link
+                            href={`/campaigns/${lastCampaign.id}`}
+                            className="text-foreground hover:text-accent truncate max-w-[150px] block"
+                          >
+                            {lastCampaign.name}
+                          </Link>
+                          <p className="text-foreground-secondary text-xs">
+                            {new Date(lastCampaign.date).toLocaleDateString('fr-FR')}
+                          </p>
                         </div>
                       )}
                     </TableCell>
@@ -255,46 +280,69 @@ export default function InfluencersPage() {
       {view === 'grid' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {sortedInfluencers.map(influencer => (
-            <Link key={influencer.id} href={`/influencers/${influencer.id}`}>
-              <Card hover className="h-full">
-                <div className="flex items-start gap-3 mb-4">
-                  <Avatar
-                    src={influencer.avatarUrl}
-                    alt={influencer.displayName}
-                    fallback={influencer.username}
-                    size="lg"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-foreground truncate">
-                      {influencer.displayName}
-                    </h3>
-                    <p className="text-sm text-foreground-secondary">@{influencer.username}</p>
-                    <p className="text-xs text-foreground-secondary">{formatNumber(influencer.followers)} followers</p>
-                  </div>
+            <Card key={influencer.username} hover className="h-full">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+                  {influencer.profilePicUrl ? (
+                    <img
+                      src={`/api/proxy-image?url=${encodeURIComponent(influencer.profilePicUrl)}`}
+                      alt={influencer.username}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-sm font-medium text-accent">
+                      {influencer.username.slice(0, 2).toUpperCase()}
+                    </span>
+                  )}
                 </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-foreground truncate">
+                    {influencer.fullName || influencer.username}
+                  </h3>
+                  <a
+                    href={`https://instagram.com/${influencer.username}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-accent hover:underline"
+                  >
+                    @{influencer.username}
+                  </a>
+                  <p className="text-xs text-foreground-secondary">{formatNumber(influencer.followersCount)} followers</p>
+                </div>
+              </div>
 
-                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border/50">
-                  <div>
-                    <p className="text-xs text-foreground-secondary">Campagnes</p>
-                    <p className="font-semibold text-foreground">{influencer.campaignHistory.length}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-foreground-secondary">ROI moyen</p>
-                    <p className={`font-semibold ${influencer.averageRoi >= 0 ? 'text-success' : 'text-danger'}`}>
-                      {influencer.averageRoi >= 0 ? '+' : ''}{influencer.averageRoi.toFixed(0)}%
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-foreground-secondary">Budget total</p>
-                    <p className="font-semibold text-foreground">{formatCurrency(influencer.totalBudget)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-foreground-secondary">CA généré</p>
-                    <p className="font-semibold text-success">{formatCurrency(influencer.totalRevenue)}</p>
-                  </div>
+              <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border/50">
+                <div>
+                  <p className="text-xs text-foreground-secondary">Campagnes</p>
+                  <p className="font-semibold text-foreground">{influencer.campaigns.length}</p>
                 </div>
-              </Card>
-            </Link>
+                <div>
+                  <p className="text-xs text-foreground-secondary">Budget total</p>
+                  <p className="font-semibold text-foreground">{formatCurrency(influencer.totalBudget)}</p>
+                </div>
+              </div>
+
+              {/* Liste des campagnes */}
+              <div className="mt-4 pt-4 border-t border-border/50">
+                <p className="text-xs text-foreground-secondary mb-2">Campagnes :</p>
+                <div className="space-y-1">
+                  {influencer.campaigns.slice(0, 3).map(camp => (
+                    <Link
+                      key={camp.id}
+                      href={`/campaigns/${camp.id}`}
+                      className="block text-sm text-foreground hover:text-accent truncate"
+                    >
+                      {camp.name}
+                    </Link>
+                  ))}
+                  {influencer.campaigns.length > 3 && (
+                    <p className="text-xs text-foreground-secondary">
+                      +{influencer.campaigns.length - 3} autres
+                    </p>
+                  )}
+                </div>
+              </div>
+            </Card>
           ))}
         </div>
       )}
@@ -310,12 +358,12 @@ export default function InfluencersPage() {
 
       {influencersWithHistory.length === 0 && !search && (
         <Card className="text-center py-16">
-          <BarChart3 className="w-12 h-12 text-foreground-secondary mx-auto mb-4" />
+          <Instagram className="w-12 h-12 text-foreground-secondary mx-auto mb-4" />
           <p className="text-foreground-secondary mb-2">
-            Vous n'avez pas encore travaillé avec des influenceurs
+            Aucun influenceur enregistré
           </p>
           <p className="text-sm text-foreground-secondary mb-4">
-            Créez votre première campagne pour commencer à tracker les performances
+            Ajoutez des influenceurs lors de la création d'une campagne
           </p>
           <Link href="/campaigns/new">
             <Button>

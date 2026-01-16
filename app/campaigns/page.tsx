@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { Plus, BarChart3, Users, Euro, Calendar } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { useUserCampaigns } from '@/lib/hooks/use-user-data';
 import Link from 'next/link';
 
 interface CampaignInfluencer {
@@ -30,15 +30,7 @@ interface Campaign {
 }
 
 export default function CampaignsPage() {
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-
-  useEffect(() => {
-    // Charger les campagnes depuis localStorage
-    const stored = localStorage.getItem('campaigns');
-    if (stored) {
-      setCampaigns(JSON.parse(stored));
-    }
-  }, []);
+  const { campaigns } = useUserCampaigns();
 
   const activeCampaigns = campaigns.filter((c) => c.status === 'active');
   const completedCampaigns = campaigns.filter((c) => c.status === 'completed');

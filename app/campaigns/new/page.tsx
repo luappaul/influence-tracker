@@ -21,10 +21,13 @@ import {
   TrendingUp,
   Megaphone,
   Sparkles,
-  ShoppingBag
+  ShoppingBag,
+  AlertTriangle,
+  Lock
 } from 'lucide-react';
 import Link from 'next/link';
 import { campaignObjectives, CampaignObjective } from '@/lib/mock-data';
+import { useUserCampaigns, useUserInfluencers, SavedInfluencer } from '@/lib/hooks/use-user-data';
 
 interface InfluencerEntry {
   id: string;
@@ -55,6 +58,8 @@ const objectiveIcons: Record<CampaignObjective, React.ReactNode> = {
 
 export default function NewCampaignPage() {
   const router = useRouter();
+  const { addCampaign } = useUserCampaigns();
+  const { influencers: savedInfluencers, saveInfluencer, searchSavedInfluencers } = useUserInfluencers();
   const [campaignName, setCampaignName] = useState('');
   const [objective, setObjective] = useState<CampaignObjective>('ventes');
   const [influencers, setInfluencers] = useState<InfluencerEntry[]>([]);
@@ -63,6 +68,12 @@ export default function NewCampaignPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  // Filtrer les influenceurs sauvegardés qui matchent la recherche
+  const filteredSavedInfluencers = searchQuery.trim()
+    ? searchSavedInfluencers(searchQuery)
+    : savedInfluencers;
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -81,8 +92,9 @@ export default function NewCampaignPage() {
     }
   };
 
-  const addInfluencer = (result: SearchResult) => {
-    if (influencers.some((i) => i.username === result.username)) {
+  // Ajouter depuis un influenceur sauvegardé
+  const addFromSaved = (saved: SavedInfluencer) => {
+    if (influencers.some((i) => i.username === saved.username)) {
       return;
     }
 
@@ -90,16 +102,55 @@ export default function NewCampaignPage() {
     setInfluencers([
       ...influencers,
       {
-        id: result.id || `temp-${Date.now()}`,
-        username: result.username,
-        fullName: result.full_name,
-        profilePicUrl: result.profile_pic_url,
-        followersCount: result.followers_count,
+        id: saved.id,
+        username: saved.username,
+        fullName: saved.fullName,
+        profilePicUrl: saved.profilePicUrl,
+        followersCount: saved.followersCount,
         budget: 0,
         campaignStartDate: today,
         campaignDays: 30,
       },
     ]);
+
+    // Mettre à jour lastUsedAt
+    saveInfluencer({ ...saved, lastUsedAt: new Date().toISOString() });
+
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowSearch(false);
+  };
+
+  // Ajouter depuis une recherche Instagram (nouveau)
+  const addInfluencer = (result: SearchResult) => {
+    if (influencers.some((i) => i.username === result.username)) {
+      return;
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const newInfluencer: InfluencerEntry = {
+      id: result.id || `temp-${Date.now()}`,
+      username: result.username,
+      fullName: result.full_name,
+      profilePicUrl: result.profile_pic_url,
+      followersCount: result.followers_count,
+      budget: 0,
+      campaignStartDate: today,
+      campaignDays: 30,
+    };
+
+    setInfluencers([...influencers, newInfluencer]);
+
+    // Sauvegarder dans la base d'influenceurs
+    saveInfluencer({
+      id: newInfluencer.id,
+      username: newInfluencer.username,
+      fullName: newInfluencer.fullName,
+      profilePicUrl: newInfluencer.profilePicUrl,
+      followersCount: newInfluencer.followersCount,
+      addedAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+    });
 
     setSearchQuery('');
     setSearchResults([]);
@@ -136,32 +187,46 @@ export default function NewCampaignPage() {
 
   const totalBudget = influencers.reduce((sum, i) => sum + i.budget, 0);
 
-  const handleSave = async () => {
+  // Générer un token unique pour chaque influenceur
+  const generateToken = () => {
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  };
+
+  const handleCreateClick = () => {
     if (!campaignName.trim()) {
       alert('Veuillez entrer un nom de campagne');
       return;
     }
+    if (influencers.length === 0) {
+      alert('Veuillez ajouter au moins un influenceur');
+      return;
+    }
+    setShowConfirmModal(true);
+  };
 
+  const handleConfirmSave = async () => {
     setIsSaving(true);
+    setShowConfirmModal(false);
 
-    const campaigns = JSON.parse(localStorage.getItem('campaigns') || '[]');
     const newCampaign = {
       id: `camp-${Date.now()}`,
       name: campaignName,
       objective: objective,
       status: 'active',
+      locked: true, // La campagne est verrouillée après création
       influencers: influencers.map((i) => ({
         ...i,
+        collabToken: generateToken(), // Token unique pour le lien de collaboration
         scrapedPosts: [],
         roi: null,
         revenue: 0,
+        instagramConnected: false,
       })),
       totalBudget,
       createdAt: new Date().toISOString(),
     };
 
-    campaigns.push(newCampaign);
-    localStorage.setItem('campaigns', JSON.stringify(campaigns));
+    addCampaign(newCampaign);
 
     setTimeout(() => {
       router.push(`/campaigns/${newCampaign.id}`);
@@ -290,54 +355,120 @@ export default function NewCampaignPage() {
                 </Button>
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-2">
-                {searchResults.map((result) => {
-                  const isAdded = influencers.some((i) => i.username === result.username);
-                  return (
-                    <div
-                      key={result.id || result.username}
-                      className="flex items-center gap-3 p-3 rounded-lg bg-background-secondary"
-                    >
-                      <img
-                        src={
-                          result.profile_pic_url
-                            ? `/api/proxy-image?url=${encodeURIComponent(result.profile_pic_url)}`
-                            : ''
-                        }
-                        alt={result.username}
-                        className="w-10 h-10 rounded-full bg-background object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = '';
-                          (e.target as HTMLImageElement).className = 'w-10 h-10 rounded-full bg-accent/10';
-                        }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-foreground truncate">
-                          {result.full_name || result.username}
-                        </p>
-                        <p className="text-sm text-foreground-secondary">
-                          @{result.username} · {formatNumber(result.followers_count)} followers
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant={isAdded ? 'secondary' : 'primary'}
-                        onClick={() => addInfluencer(result)}
-                        disabled={isAdded}
-                      >
-                        {isAdded ? 'Ajouté' : 'Ajouter'}
-                      </Button>
+              <div className="flex-1 overflow-y-auto space-y-4">
+                {/* Influenceurs sauvegardés */}
+                {filteredSavedInfluencers.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-foreground-secondary mb-2 flex items-center gap-1">
+                      <Users className="w-3 h-3" />
+                      Mes influenceurs ({filteredSavedInfluencers.length})
+                    </p>
+                    <div className="space-y-2">
+                      {filteredSavedInfluencers.map((saved) => {
+                        const isAdded = influencers.some((i) => i.username === saved.username);
+                        return (
+                          <div
+                            key={saved.username}
+                            className="flex items-center gap-3 p-3 rounded-lg bg-accent/5 border border-accent/20"
+                          >
+                            <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center overflow-hidden">
+                              {saved.profilePicUrl ? (
+                                <img
+                                  src={`/api/proxy-image?url=${encodeURIComponent(saved.profilePicUrl)}`}
+                                  alt={saved.username}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <span className="text-sm font-medium text-accent">
+                                  {saved.username.slice(0, 2).toUpperCase()}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-foreground truncate">
+                                {saved.fullName || saved.username}
+                              </p>
+                              <p className="text-sm text-foreground-secondary">
+                                @{saved.username} · {formatNumber(saved.followersCount)} followers
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant={isAdded ? 'secondary' : 'primary'}
+                              onClick={() => addFromSaved(saved)}
+                              disabled={isAdded}
+                            >
+                              {isAdded ? 'Ajouté' : 'Ajouter'}
+                            </Button>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
+                  </div>
+                )}
 
-                {searchResults.length === 0 && searchQuery && !isSearching && (
+                {/* Résultats de recherche Instagram */}
+                {searchResults.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-foreground-secondary mb-2 flex items-center gap-1">
+                      <Instagram className="w-3 h-3" />
+                      Résultats Instagram
+                    </p>
+                    <div className="space-y-2">
+                      {searchResults.map((result) => {
+                        const isAdded = influencers.some((i) => i.username === result.username);
+                        const isSaved = savedInfluencers.some((i) => i.username === result.username);
+                        return (
+                          <div
+                            key={result.id || result.username}
+                            className="flex items-center gap-3 p-3 rounded-lg bg-background-secondary"
+                          >
+                            <img
+                              src={
+                                result.profile_pic_url
+                                  ? `/api/proxy-image?url=${encodeURIComponent(result.profile_pic_url)}`
+                                  : ''
+                              }
+                              alt={result.username}
+                              className="w-10 h-10 rounded-full bg-background object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = '';
+                                (e.target as HTMLImageElement).className = 'w-10 h-10 rounded-full bg-accent/10';
+                              }}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-foreground truncate">
+                                {result.full_name || result.username}
+                              </p>
+                              <p className="text-sm text-foreground-secondary">
+                                @{result.username} · {formatNumber(result.followers_count)} followers
+                                {isSaved && <span className="ml-1 text-accent">(déjà sauvegardé)</span>}
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant={isAdded ? 'secondary' : 'primary'}
+                              onClick={() => addInfluencer(result)}
+                              disabled={isAdded}
+                            >
+                              {isAdded ? 'Ajouté' : 'Ajouter'}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Message si aucun résultat */}
+                {searchResults.length === 0 && filteredSavedInfluencers.length === 0 && searchQuery && !isSearching && (
                   <p className="text-center text-foreground-secondary py-8">
-                    Aucun résultat. Essayez un autre username.
+                    Aucun résultat. Cliquez sur la loupe pour rechercher sur Instagram.
                   </p>
                 )}
 
-                {!searchQuery && (
+                {/* Message initial */}
+                {!searchQuery && savedInfluencers.length === 0 && (
                   <p className="text-center text-foreground-secondary py-8">
                     Entrez un username Instagram pour rechercher
                   </p>
@@ -486,7 +617,7 @@ export default function NewCampaignPage() {
         <Link href="/campaigns">
           <Button variant="secondary">Annuler</Button>
         </Link>
-        <Button onClick={handleSave} disabled={isSaving || !campaignName.trim()}>
+        <Button onClick={handleCreateClick} disabled={isSaving || !campaignName.trim()}>
           {isSaving ? (
             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
           ) : (
@@ -495,6 +626,69 @@ export default function NewCampaignPage() {
           Créer la campagne
         </Button>
       </div>
+
+      {/* Modal de confirmation */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-card rounded-xl p-6 w-full max-w-md mx-4 shadow-xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-warning/10 flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-warning" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">
+                  Confirmer la création
+                </h3>
+              </div>
+            </div>
+
+            <div className="mb-6 space-y-3">
+              <p className="text-foreground-secondary">
+                Une fois la campagne créée, les informations suivantes ne pourront plus être modifiées :
+              </p>
+              <ul className="text-sm text-foreground-secondary space-y-2">
+                <li className="flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-warning" />
+                  Nom de la campagne
+                </li>
+                <li className="flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-warning" />
+                  Liste des influenceurs
+                </li>
+                <li className="flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-warning" />
+                  Budgets et dates de collaboration
+                </li>
+              </ul>
+              <p className="text-sm text-foreground-secondary mt-4">
+                Un lien unique sera généré pour chaque influenceur afin qu'il puisse connecter son compte Instagram.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                variant="secondary"
+                className="flex-1"
+                onClick={() => setShowConfirmModal(false)}
+              >
+                Annuler
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={handleConfirmSave}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Lock className="w-4 h-4 mr-2" />
+                )}
+                Confirmer et créer
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -18,6 +18,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const initials = user?.name
     ?.split(' ')
@@ -27,18 +28,36 @@ export function Sidebar() {
     .slice(0, 2) || '??';
 
   return (
-    <aside className="fixed left-0 top-0 z-40 h-screen w-16 border-r border-border/50 bg-card flex flex-col">
+    <aside
+      className={cn(
+        'fixed left-0 top-0 z-40 h-screen border-r border-border/50 bg-card flex flex-col transition-all duration-300 ease-in-out',
+        isExpanded ? 'w-52' : 'w-16'
+      )}
+      onMouseEnter={() => setIsExpanded(true)}
+      onMouseLeave={() => {
+        setIsExpanded(false);
+        setShowMenu(false);
+      }}
+    >
       {/* Logo */}
-      <div className="flex h-16 items-center justify-center border-b border-border/50">
-        <Link href="/">
-          <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center hover:bg-accent/90 transition-colors">
+      <div className="flex h-16 items-center border-b border-border/50 px-3">
+        <Link href="/" className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center hover:bg-accent/90 transition-colors flex-shrink-0">
             <Sparkles className="w-5 h-5 text-white" />
           </div>
+          <span
+            className={cn(
+              'font-semibold text-foreground whitespace-nowrap transition-all duration-300',
+              isExpanded ? 'opacity-100' : 'opacity-0 w-0'
+            )}
+          >
+            Datafluence
+          </span>
         </Link>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 flex flex-col items-center py-4 gap-2">
+      <nav className="flex-1 flex flex-col py-4 gap-1 px-3">
         {navItems.map((item) => {
           const isActive = pathname === item.href ||
             (item.href !== '/' && pathname.startsWith(item.href));
@@ -48,14 +67,21 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                'w-10 h-10 rounded-lg flex items-center justify-center transition-all duration-200',
+                'h-10 rounded-lg flex items-center gap-3 px-2.5 transition-all duration-200',
                 'hover:bg-background-secondary',
                 isActive && 'bg-accent-light text-accent',
                 !isActive && 'text-foreground-secondary hover:text-foreground'
               )}
-              title={item.label}
             >
-              <item.icon className="w-5 h-5" />
+              <item.icon className="w-5 h-5 flex-shrink-0" />
+              <span
+                className={cn(
+                  'text-sm font-medium whitespace-nowrap transition-all duration-300',
+                  isExpanded ? 'opacity-100' : 'opacity-0 w-0'
+                )}
+              >
+                {item.label}
+              </span>
             </Link>
           );
         })}
@@ -65,14 +91,28 @@ export function Sidebar() {
       <div className="p-3 border-t border-border/50 relative">
         <button
           onClick={() => setShowMenu(!showMenu)}
-          className="w-10 h-10 rounded-full bg-background-secondary flex items-center justify-center hover:bg-border transition-colors"
-          title={user?.name || 'Menu utilisateur'}
+          className={cn(
+            'h-10 rounded-lg flex items-center gap-3 px-2.5 transition-all duration-200 w-full',
+            'hover:bg-background-secondary text-foreground-secondary hover:text-foreground'
+          )}
         >
-          <span className="text-sm font-medium text-foreground-secondary">{initials}</span>
+          <div className="w-8 h-8 rounded-full bg-background-secondary flex items-center justify-center flex-shrink-0">
+            <span className="text-xs font-medium">{initials}</span>
+          </div>
+          <div
+            className={cn(
+              'flex-1 text-left transition-all duration-300 overflow-hidden',
+              isExpanded ? 'opacity-100' : 'opacity-0 w-0'
+            )}
+          >
+            <p className="text-sm font-medium text-foreground truncate">
+              {user?.name}
+            </p>
+          </div>
         </button>
 
         {/* Menu déroulant */}
-        {showMenu && (
+        {showMenu && isExpanded && (
           <>
             {/* Overlay pour fermer le menu */}
             <div
@@ -81,7 +121,7 @@ export function Sidebar() {
             />
 
             {/* Menu */}
-            <div className="absolute bottom-16 left-3 z-50 w-48 bg-card border border-border rounded-lg shadow-lg py-2">
+            <div className="absolute bottom-16 left-3 z-50 w-46 bg-card border border-border rounded-lg shadow-lg py-2">
               <div className="px-3 py-2 border-b border-border/50">
                 <p className="font-medium text-foreground text-sm truncate">
                   {user?.name}
@@ -97,9 +137,13 @@ export function Sidebar() {
               </div>
 
               <button
-                onClick={() => {
+                onClick={async () => {
                   setShowMenu(false);
-                  logout();
+                  try {
+                    await logout();
+                  } catch (e) {
+                    console.error('Logout error:', e);
+                  }
                 }}
                 className="w-full px-3 py-2 text-left text-sm text-danger hover:bg-background-secondary flex items-center gap-2 transition-colors"
               >

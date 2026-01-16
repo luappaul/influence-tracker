@@ -10,7 +10,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Influence Tracker - Attribution de ventes influenceurs",
+  title: "Datafluence - Attribution de ventes influenceurs",
   description: "Mesurez l'impact réel de vos campagnes d'influence grâce à la corrélation temporelle",
 };
 

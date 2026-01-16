@@ -13,8 +13,14 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { user, isLoading } = useAuth();
   const pathname = usePathname();
 
-  // Page de login - pas de sidebar
-  if (pathname === '/login') {
+  // Pages publiques - pas de sidebar, pas d'auth requise
+  const isPublicPage =
+    pathname === '/login' ||
+    pathname === '/reset-password' ||
+    pathname === '/onboarding' ||
+    pathname.startsWith('/collab/');
+
+  if (isPublicPage) {
     return <>{children}</>;
   }
 

@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@shopify/shopify-api": "^12.2.0",
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.90.1",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.562.0",
     "next": "16.1.1",

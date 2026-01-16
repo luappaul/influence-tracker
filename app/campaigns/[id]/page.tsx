@@ -29,9 +29,13 @@ import {
   ExternalLink,
   CheckCircle2,
   XCircle,
-  HelpCircle
+  HelpCircle,
+  Link2,
+  Copy,
+  Lock
 } from 'lucide-react';
 import Link from 'next/link';
+import { useUserCampaigns } from '@/lib/hooks/use-user-data';
 
 interface ScrapedPost {
   id: string;
@@ -60,12 +64,17 @@ interface CampaignInfluencer {
   lastScrapedAt?: string;
   roi?: number | null;
   revenue?: number;
+  collabToken?: string;
+  instagramConnected?: boolean;
+  collabSigned?: boolean; // L'influenceur a signé/accepté via le lien collab
+  collabSignedAt?: string;
 }
 
 interface Campaign {
   id: string;
   name: string;
   status: 'active' | 'completed' | 'draft';
+  locked?: boolean;
   influencers: CampaignInfluencer[];
   totalBudget: number;
   createdAt: string;
@@ -84,6 +93,7 @@ export default function CampaignDetailPage() {
   const params = useParams();
   const campaignId = params.id as string;
 
+  const { campaigns, updateCampaign, deleteCampaign: deleteCampaignFromStorage, isLoading: isCampaignsLoading } = useUserCampaigns();
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
@@ -94,29 +104,31 @@ export default function CampaignDetailPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [expandedInfluencers, setExpandedInfluencers] = useState<Set<string>>(new Set());
   const [scrapingInfluencer, setScrapingInfluencer] = useState<string | null>(null);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  const isLocked = campaign?.locked ?? false;
+
+  const copyCollabLink = async (token: string) => {
+    const link = `${window.location.origin}/collab/${token}`;
+    await navigator.clipboard.writeText(link);
+    setCopiedToken(token);
+    setTimeout(() => setCopiedToken(null), 2000);
+  };
 
   useEffect(() => {
-    const stored = localStorage.getItem('campaigns');
-    if (stored) {
-      const campaigns: Campaign[] = JSON.parse(stored);
-      const found = campaigns.find((c) => c.id === campaignId);
-      if (found) {
-        setCampaign(found);
-        setEditedName(found.name);
-      }
+    if (isCampaignsLoading) return;
+
+    const found = campaigns.find((c: Campaign) => c.id === campaignId);
+    if (found) {
+      setCampaign(found);
+      setEditedName(found.name);
     }
     setIsLoading(false);
-  }, [campaignId]);
+  }, [campaignId, campaigns, isCampaignsLoading]);
 
   const saveCampaign = (updatedCampaign: Campaign) => {
-    const stored = localStorage.getItem('campaigns');
-    const campaigns: Campaign[] = stored ? JSON.parse(stored) : [];
-    const index = campaigns.findIndex((c) => c.id === campaignId);
-    if (index !== -1) {
-      campaigns[index] = updatedCampaign;
-      localStorage.setItem('campaigns', JSON.stringify(campaigns));
-      setCampaign(updatedCampaign);
-    }
+    updateCampaign(campaignId, updatedCampaign);
+    setCampaign(updatedCampaign);
   };
 
   const handleSaveName = () => {
@@ -365,13 +377,10 @@ export default function CampaignDetailPage() {
     });
   };
 
-  const deleteCampaign = () => {
+  const handleDeleteCampaign = () => {
     if (!confirm('Êtes-vous sûr de vouloir supprimer cette campagne ?')) return;
 
-    const stored = localStorage.getItem('campaigns');
-    const campaigns: Campaign[] = stored ? JSON.parse(stored) : [];
-    const filtered = campaigns.filter((c) => c.id !== campaignId);
-    localStorage.setItem('campaigns', JSON.stringify(filtered));
+    deleteCampaignFromStorage(campaignId);
     router.push('/campaigns');
   };
 
@@ -468,7 +477,7 @@ export default function CampaignDetailPage() {
           <ArrowLeft className="w-5 h-5 text-foreground-secondary" />
         </Link>
         <div className="flex-1">
-          {isEditing ? (
+          {isEditing && !isLocked ? (
             <div className="flex items-center gap-2">
               <Input
                 value={editedName}
@@ -495,12 +504,20 @@ export default function CampaignDetailPage() {
               <h1 className="text-2xl font-semibold text-foreground">
                 {campaign.name}
               </h1>
-              <button
-                onClick={() => setIsEditing(true)}
-                className="p-1 text-foreground-secondary hover:text-foreground"
-              >
-                <Pencil className="w-4 h-4" />
-              </button>
+              {!isLocked && (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="p-1 text-foreground-secondary hover:text-foreground"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+              )}
+              {isLocked && (
+                <Badge className="bg-foreground-secondary/10 text-foreground-secondary">
+                  <Lock className="w-3 h-3 mr-1" />
+                  Verrouillée
+                </Badge>
+              )}
               <Badge className={statusColors[campaign.status]}>
                 {statusLabels[campaign.status]}
               </Badge>
@@ -515,7 +532,7 @@ export default function CampaignDetailPage() {
             })}
           </p>
         </div>
-        <Button variant="secondary" onClick={deleteCampaign}>
+        <Button variant="secondary" onClick={handleDeleteCampaign}>
           <Trash2 className="w-4 h-4 mr-2" />
           Supprimer
         </Button>
@@ -587,10 +604,12 @@ export default function CampaignDetailPage() {
       <Card>
         <div className="flex items-center justify-between mb-4">
           <CardTitle>Influenceurs ({campaign.influencers.length})</CardTitle>
-          <Button onClick={() => setShowSearch(true)} size="sm">
-            <Plus className="w-4 h-4 mr-2" />
-            Ajouter
-          </Button>
+          {!isLocked && (
+            <Button onClick={() => setShowSearch(true)} size="sm">
+              <Plus className="w-4 h-4 mr-2" />
+              Ajouter
+            </Button>
+          )}
         </div>
 
         {/* Modal de recherche */}
@@ -699,13 +718,14 @@ export default function CampaignDetailPage() {
           <div className="space-y-2">
             {/* Header de la grille */}
             <div className="grid grid-cols-12 gap-4 px-4 py-2 text-sm font-medium text-foreground-secondary">
-              <div className="col-span-3">Influenceur</div>
+              <div className={isLocked ? "col-span-2" : "col-span-3"}>Influenceur</div>
               <div className="col-span-1 text-center">Followers</div>
-              <div className="col-span-2 text-center">Budget</div>
-              <div className="col-span-2 text-center">Début</div>
+              <div className="col-span-1 text-center">Budget</div>
+              <div className={isLocked ? "col-span-2" : "col-span-2"}>Début</div>
               <div className="col-span-1 text-center">Durée</div>
+              {isLocked && <div className="col-span-3 text-center">Lien collab</div>}
               <div className="col-span-2 text-center">Posts</div>
-              <div className="col-span-1"></div>
+              {!isLocked && <div className="col-span-2"></div>}
             </div>
 
             {/* Lignes */}
@@ -723,8 +743,8 @@ export default function CampaignDetailPage() {
                     }`}
                   >
                     {/* Influenceur */}
-                    <div className="col-span-3 flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center overflow-hidden">
+                    <div className={`${isLocked ? 'col-span-2' : 'col-span-3'} flex items-center gap-3`}>
+                      <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center overflow-hidden relative">
                         {influencer.profilePicUrl ? (
                           <img
                             src={`/api/proxy-image?url=${encodeURIComponent(influencer.profilePicUrl)}`}
@@ -735,6 +755,11 @@ export default function CampaignDetailPage() {
                           <span className="text-sm font-medium text-accent">
                             {influencer.username.slice(0, 2).toUpperCase()}
                           </span>
+                        )}
+                        {isLocked && influencer.instagramConnected && (
+                          <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-success rounded-full flex items-center justify-center">
+                            <Check className="w-2.5 h-2.5 text-white" />
+                          </div>
                         )}
                       </div>
                       <div className="min-w-0">
@@ -760,56 +785,114 @@ export default function CampaignDetailPage() {
                     </div>
 
                     {/* Budget */}
-                    <div className="col-span-2">
-                      <div className="relative">
-                        <Euro className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-foreground-secondary" />
-                        <Input
-                          type="number"
-                          placeholder="0"
-                          value={influencer.budget || ''}
-                          onChange={(e) =>
-                            updateBudget(
-                              influencer.username,
-                              parseFloat(e.target.value) || 0
-                            )
-                          }
-                          className="pl-7 text-center text-sm h-8"
-                        />
-                      </div>
+                    <div className="col-span-1 text-center">
+                      {isLocked ? (
+                        <span className="text-foreground text-sm font-medium">
+                          {influencer.budget.toLocaleString('fr-FR')} €
+                        </span>
+                      ) : (
+                        <div className="relative">
+                          <Euro className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-foreground-secondary" />
+                          <Input
+                            type="number"
+                            placeholder="0"
+                            value={influencer.budget || ''}
+                            onChange={(e) =>
+                              updateBudget(
+                                influencer.username,
+                                parseFloat(e.target.value) || 0
+                              )
+                            }
+                            className="pl-7 text-center text-sm h-8"
+                          />
+                        </div>
+                      )}
                     </div>
 
                     {/* Date début */}
                     <div className="col-span-2">
-                      <Input
-                        type="date"
-                        value={influencer.campaignStartDate || ''}
-                        onChange={(e) =>
-                          updateCampaignStartDate(influencer.username, e.target.value)
-                        }
-                        className="text-center text-sm h-8"
-                      />
+                      {isLocked ? (
+                        <span className="text-foreground text-sm">
+                          {influencer.campaignStartDate ? formatDate(influencer.campaignStartDate) : '-'}
+                        </span>
+                      ) : (
+                        <Input
+                          type="date"
+                          value={influencer.campaignStartDate || ''}
+                          onChange={(e) =>
+                            updateCampaignStartDate(influencer.username, e.target.value)
+                          }
+                          className="text-center text-sm h-8"
+                        />
+                      )}
                     </div>
 
                     {/* Durée */}
-                    <div className="col-span-1">
-                      <div className="relative">
-                        <Input
-                          type="number"
-                          placeholder="30"
-                          value={influencer.campaignDays || ''}
-                          onChange={(e) =>
-                            updateCampaignDays(
-                              influencer.username,
-                              parseInt(e.target.value) || 0
-                            )
-                          }
-                          className="text-center text-sm h-8 pr-6"
-                        />
-                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-foreground-secondary">
-                          j
+                    <div className="col-span-1 text-center">
+                      {isLocked ? (
+                        <span className="text-foreground text-sm">
+                          {influencer.campaignDays || 0}j
                         </span>
-                      </div>
+                      ) : (
+                        <div className="relative">
+                          <Input
+                            type="number"
+                            placeholder="30"
+                            value={influencer.campaignDays || ''}
+                            onChange={(e) =>
+                              updateCampaignDays(
+                                influencer.username,
+                                parseInt(e.target.value) || 0
+                              )
+                            }
+                            className="text-center text-sm h-8 pr-6"
+                          />
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-foreground-secondary">
+                            j
+                          </span>
+                        </div>
+                      )}
                     </div>
+
+                    {/* Lien collab (seulement si verrouillé) */}
+                    {isLocked && (
+                      <div className="col-span-3 flex items-center justify-center gap-2">
+                        {influencer.collabToken ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => copyCollabLink(influencer.collabToken!)}
+                              className="h-7 text-xs"
+                            >
+                              {copiedToken === influencer.collabToken ? (
+                                <>
+                                  <Check className="w-3 h-3 mr-1 text-success" />
+                                  Copié !
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3 mr-1" />
+                                  Copier le lien
+                                </>
+                              )}
+                            </Button>
+                            {influencer.collabSigned ? (
+                              <Badge className="bg-success/10 text-success text-xs">
+                                <Check className="w-3 h-3 mr-1" />
+                                Signé
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-warning/10 text-warning text-xs">
+                                En attente
+                              </Badge>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-xs text-foreground-secondary">-</span>
+                        )}
+                      </div>
+                    )}
 
                     {/* Posts & Scrape */}
                     <div className="col-span-2 flex items-center justify-center gap-1">
@@ -853,15 +936,17 @@ export default function CampaignDetailPage() {
                       )}
                     </div>
 
-                    {/* Actions */}
-                    <div className="col-span-1 flex justify-end">
-                      <button
-                        onClick={() => removeInfluencer(influencer.username)}
-                        className="p-2 text-foreground-secondary hover:text-danger transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    {/* Actions (seulement si non verrouillé) */}
+                    {!isLocked && (
+                      <div className="col-span-2 flex justify-end">
+                        <button
+                          onClick={() => removeInfluencer(influencer.username)}
+                          className="p-2 text-foreground-secondary hover:text-danger transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Posts expandés - Format tableau */}
@@ -1004,18 +1089,17 @@ export default function CampaignDetailPage() {
 
             {/* Total */}
             <div className="grid grid-cols-12 gap-4 items-center px-4 py-3 border-t border-border mt-2">
-              <div className="col-span-3 font-medium text-foreground">Total</div>
+              <div className={`${isLocked ? 'col-span-2' : 'col-span-3'} font-medium text-foreground`}>Total</div>
               <div className="col-span-1 text-center font-medium text-foreground">
                 {formatNumber(totalFollowers)}
               </div>
-              <div className="col-span-2 text-center font-semibold text-foreground">
+              <div className="col-span-1 text-center font-semibold text-foreground">
                 {campaign.totalBudget.toLocaleString('fr-FR')} €
               </div>
-              <div className="col-span-3"></div>
+              <div className={isLocked ? "col-span-6" : "col-span-5"}></div>
               <div className="col-span-2 text-center font-medium text-foreground">
                 {totalPosts} posts
               </div>
-              <div className="col-span-1"></div>
             </div>
           </div>
         ) : (

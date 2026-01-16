@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useShopifyData } from '@/lib/hooks/use-shopify-data';
+import { useUserCampaigns } from '@/lib/hooks/use-user-data';
 import { useAuth } from '@/lib/auth-context';
 import { formatCurrency } from '@/lib/utils';
 import {
@@ -50,6 +51,7 @@ import {
 } from 'recharts';
 
 type DateRange = 'this_month' | 'last_month' | 'this_year' | 'last_30_days' | 'last_7_days';
+type ChartMetric = 'sales' | 'followers' | 'visitors';
 
 interface PostCommenter {
   username: string;
@@ -111,6 +113,8 @@ interface InfluencerStats {
   comments: number;
   attributedSales: number;
   attributedRevenue: number;
+  attributedFollowers: number;
+  attributedVisitors: number;
   roi: number;
   // Signaux d'attribution intelligents
   signals: {
@@ -160,22 +164,14 @@ function getDateRange(range: DateRange): { start: Date; end: Date } {
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { orders, isLoading } = useShopifyData();
+  const { orders, dailyMetrics, isLoading } = useShopifyData();
+  const { campaigns } = useUserCampaigns();
   const [dateRange, setDateRange] = useState<DateRange>('last_30_days');
   const [showDateMenu, setShowDateMenu] = useState(false);
   const [chartType, setChartType] = useState<'bar' | 'line'>('line');
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [showCampaignMenu, setShowCampaignMenu] = useState(false);
-  const [showLikesOnChart, setShowLikesOnChart] = useState(false);
-
-  // Charger les campagnes depuis localStorage
-  useEffect(() => {
-    const stored = localStorage.getItem('campaigns');
-    if (stored) {
-      setCampaigns(JSON.parse(stored));
-    }
-  }, []);
+  const [chartMetric, setChartMetric] = useState<ChartMetric>('sales');
 
   const selectedCampaign = campaigns.find(c => c.id === selectedCampaignId);
 
@@ -187,7 +183,7 @@ export default function Dashboard() {
     let earliestStart: Date | null = null;
     let latestEnd: Date | null = null;
 
-    selectedCampaign.influencers.forEach(inf => {
+    selectedCampaign.influencers.forEach((inf: any) => {
       if (inf.campaignStartDate && inf.campaignDays) {
         const start = new Date(inf.campaignStartDate);
         const end = new Date(start);
@@ -229,10 +225,11 @@ export default function Dashboard() {
     const totalOrders = filteredOrders.length;
     const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
-    const productIds = new Set<number>();
+    // Quantité totale d'articles vendus
+    let totalItemsSold = 0;
     filteredOrders.forEach((order) => {
       order.line_items?.forEach((item) => {
-        productIds.add(item.product_id);
+        totalItemsSold += item.quantity || 1;
       });
     });
 
@@ -240,7 +237,7 @@ export default function Dashboard() {
       totalRevenue,
       totalOrders,
       averageOrderValue,
-      totalProducts: productIds.size,
+      totalItemsSold,
     };
   }, [filteredOrders]);
 
@@ -254,6 +251,8 @@ export default function Dashboard() {
     // 30 jours avant le début de la campagne
     const baselineStart = new Date(start);
     baselineStart.setDate(baselineStart.getDate() - BASELINE_DAYS);
+    const baselineStartStr = baselineStart.toISOString().split('T')[0];
+    const startStr = start.toISOString().split('T')[0];
 
     const baselineOrders = orders.filter(order => {
       const orderDate = new Date(order.created_at);
@@ -265,22 +264,34 @@ export default function Dashboard() {
       0
     );
 
+    // Baseline followers et visitors
+    const baselineMetrics = dailyMetrics.filter(m => m.date >= baselineStartStr && m.date < startStr);
+    const baselineFollowers = baselineMetrics.reduce((sum, m) => sum + m.followers, 0);
+    const baselineVisitors = baselineMetrics.reduce((sum, m) => sum + m.visitors, 0);
+    const baselineMetricsDays = baselineMetrics.length || BASELINE_DAYS;
+
     // Moyenne journalière
     const dailyBaseline = baselineRevenue / BASELINE_DAYS;
+    const dailyFollowersBaseline = baselineFollowers / baselineMetricsDays;
+    const dailyVisitorsBaseline = baselineVisitors / baselineMetricsDays;
 
     return {
       totalRevenue: baselineRevenue,
       dailyAverage: dailyBaseline,
+      dailyFollowers: dailyFollowersBaseline,
+      dailyVisitors: dailyVisitorsBaseline,
       days: BASELINE_DAYS,
       ordersCount: baselineOrders.length,
     };
-  }, [campaignPeriod, orders]);
+  }, [campaignPeriod, orders, dailyMetrics]);
 
   // Calculer les stats pendant la campagne avec baseline
   const campaignStats = useMemo(() => {
     if (!campaignPeriod || !baselineData) return null;
 
     const { start, end } = campaignPeriod;
+    const startStr = start.toISOString().split('T')[0];
+    const endStr = end.toISOString().split('T')[0];
 
     // Revenue pendant la campagne
     const campaignOrders = orders.filter(order => {
@@ -292,34 +303,57 @@ export default function Dashboard() {
       0
     );
 
+    // Followers et visitors pendant la campagne
+    const campaignMetrics = dailyMetrics.filter(m => m.date >= startStr && m.date <= endStr);
+    const campaignFollowers = campaignMetrics.reduce((sum, m) => sum + m.followers, 0);
+    const campaignVisitors = campaignMetrics.reduce((sum, m) => sum + m.visitors, 0);
+
     // Nombre de jours de campagne
     const campaignDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
 
     // Revenue attendu sans campagne (baseline × jours)
     const expectedRevenue = baselineData.dailyAverage * campaignDays;
+    const expectedFollowers = baselineData.dailyFollowers * campaignDays;
+    const expectedVisitors = baselineData.dailyVisitors * campaignDays;
 
     // Impact incrémental de la campagne
     const incrementalRevenue = Math.max(0, campaignRevenue - expectedRevenue);
+    const incrementalFollowers = Math.max(0, campaignFollowers - expectedFollowers);
+    const incrementalVisitors = Math.max(0, campaignVisitors - expectedVisitors);
 
     // Variation vs baseline
     const variation = expectedRevenue > 0
       ? ((campaignRevenue - expectedRevenue) / expectedRevenue) * 100
       : campaignRevenue > 0 ? 100 : 0;
+    const followersVariation = expectedFollowers > 0
+      ? ((campaignFollowers - expectedFollowers) / expectedFollowers) * 100
+      : campaignFollowers > 0 ? 100 : 0;
+    const visitorsVariation = expectedVisitors > 0
+      ? ((campaignVisitors - expectedVisitors) / expectedVisitors) * 100
+      : campaignVisitors > 0 ? 100 : 0;
 
     return {
       campaignRevenue,
       campaignOrders: campaignOrders.length,
+      campaignFollowers,
+      campaignVisitors,
       expectedRevenue,
+      expectedFollowers,
+      expectedVisitors,
       incrementalRevenue,
+      incrementalFollowers,
+      incrementalVisitors,
       campaignDays,
       variation,
+      followersVariation,
+      visitorsVariation,
       roi: selectedCampaign?.totalBudget && incrementalRevenue > 0
         ? ((incrementalRevenue - selectedCampaign.totalBudget) / selectedCampaign.totalBudget) * 100
         : selectedCampaign?.totalBudget
         ? -100
         : 0,
     };
-  }, [campaignPeriod, orders, selectedCampaign, baselineData]);
+  }, [campaignPeriod, orders, dailyMetrics, selectedCampaign, baselineData]);
 
   // Attribution intelligente
   const attributionResult = useMemo((): AttributionResult | null => {
@@ -337,22 +371,39 @@ export default function Dashboard() {
   const influencerStats = useMemo((): InfluencerStats[] => {
     if (!selectedCampaign || !attributionResult) return [];
 
-    return selectedCampaign.influencers.map(influencer => {
-      const productPosts = influencer.scrapedPosts?.filter(p => p.mentionsProduct === true) || [];
+    // Calculer l'engagement total de tous les influenceurs pour l'attribution proportionnelle
+    let totalEngagement = 0;
+    selectedCampaign.influencers.forEach((inf: any) => {
+      const productPosts = inf.scrapedPosts?.filter((p: any) => p.mentionsProduct === true) || [];
+      const engagement = productPosts.reduce((sum: number, p: any) => sum + p.likesCount + p.commentsCount, 0);
+      totalEngagement += engagement;
+    });
+
+    // Impact followers et visiteurs incrémental (si disponible)
+    const incrementalFollowers = campaignStats?.incrementalFollowers || 0;
+    const incrementalVisitors = campaignStats?.incrementalVisitors || 0;
+
+    return selectedCampaign.influencers.map((influencer: any) => {
+      const productPosts = influencer.scrapedPosts?.filter((p: any) => p.mentionsProduct === true) || [];
       const allPosts = influencer.scrapedPosts || [];
 
       // Impressions = followers × nombre de posts produit
       const impressions = productPosts.length * influencer.followersCount;
 
       // Likes et comments des posts produit
-      const likes = productPosts.reduce((sum, p) => sum + p.likesCount, 0);
-      const comments = productPosts.reduce((sum, p) => sum + p.commentsCount, 0);
+      const likes = productPosts.reduce((sum: number, p: any) => sum + p.likesCount, 0);
+      const comments = productPosts.reduce((sum: number, p: any) => sum + p.commentsCount, 0);
 
       // Récupérer l'attribution intelligente pour cet influenceur
       const attribution = attributionResult.influencers.find(i => i.username === influencer.username);
 
       const attributedRevenue = attribution?.totalAttributedRevenue || 0;
       const attributedSales = Math.round(attribution?.totalAttributedOrders || 0);
+
+      // Attribution proportionnelle des followers et visiteurs basée sur l'engagement
+      const engagementRatio = totalEngagement > 0 ? (likes + comments) / totalEngagement : 0;
+      const attributedFollowers = Math.round(incrementalFollowers * engagementRatio);
+      const attributedVisitors = Math.round(incrementalVisitors * engagementRatio);
 
       // Signaux d'attribution
       const signals = attribution?.signals || {
@@ -386,6 +437,8 @@ export default function Dashboard() {
         comments,
         attributedSales,
         attributedRevenue,
+        attributedFollowers,
+        attributedVisitors,
         roi,
         signals,
         confidence,
@@ -402,6 +455,8 @@ export default function Dashboard() {
         comments: acc.comments + inf.comments,
         attributedSales: acc.attributedSales + inf.attributedSales,
         attributedRevenue: acc.attributedRevenue + inf.attributedRevenue,
+        attributedFollowers: acc.attributedFollowers + inf.attributedFollowers,
+        attributedVisitors: acc.attributedVisitors + inf.attributedVisitors,
         budget: acc.budget + inf.budget,
         signals: {
           temporal: acc.signals.temporal + inf.signals.temporal,
@@ -417,19 +472,23 @@ export default function Dashboard() {
         comments: 0,
         attributedSales: 0,
         attributedRevenue: 0,
+        attributedFollowers: 0,
+        attributedVisitors: 0,
         budget: 0,
         signals: { temporal: 0, newCustomer: 0, productMatch: 0, anomaly: 0, baseline: 0 },
       }
     );
   }, [influencerStats]);
 
-  // Données pour le graphique (revenue + likes des posts produit + baseline + markers influenceurs)
+  // Données pour le graphique (revenue + likes des posts produit + baseline + markers influenceurs + followers + visitors)
   const chartData = useMemo(() => {
     const grouped: Record<string, {
       date: string;
       revenue: number;
       orders: number;
       likes: number;
+      followers: number;
+      visitors: number;
       inCampaign: boolean;
       baseline: number | null;
       influencerMarker?: {
@@ -443,7 +502,7 @@ export default function Dashboard() {
     filteredOrders.forEach((order) => {
       const date = order.created_at.split('T')[0];
       if (!grouped[date]) {
-        grouped[date] = { date, revenue: 0, orders: 0, likes: 0, inCampaign: false, baseline: null };
+        grouped[date] = { date, revenue: 0, orders: 0, likes: 0, followers: 0, visitors: 0, inCampaign: false, baseline: null };
       }
       grouped[date].revenue += parseFloat(order.total_price || '0');
       grouped[date].orders += 1;
@@ -457,14 +516,31 @@ export default function Dashboard() {
       }
     });
 
+    // Ajouter les métriques quotidiennes (followers et visitors)
+    dailyMetrics.forEach((metric) => {
+      if (!grouped[metric.date]) {
+        grouped[metric.date] = { date: metric.date, revenue: 0, orders: 0, likes: 0, followers: 0, visitors: 0, inCampaign: false, baseline: null };
+      }
+      grouped[metric.date].followers = metric.followers;
+      grouped[metric.date].visitors = metric.visitors;
+
+      // Marquer si dans la période de campagne
+      if (campaignPeriod) {
+        const d = new Date(metric.date);
+        if (d >= campaignPeriod.start && d <= campaignPeriod.end) {
+          grouped[metric.date].inCampaign = true;
+        }
+      }
+    });
+
     // Ajouter les likes des posts produit si une campagne est sélectionnée
     if (selectedCampaign) {
-      selectedCampaign.influencers.forEach(influencer => {
-        influencer.scrapedPosts?.forEach(post => {
+      selectedCampaign.influencers.forEach((influencer: any) => {
+        influencer.scrapedPosts?.forEach((post: any) => {
           if (post.mentionsProduct === true) {
             const postDate = new Date(post.timestamp).toISOString().split('T')[0];
             if (!grouped[postDate]) {
-              grouped[postDate] = { date: postDate, revenue: 0, orders: 0, likes: 0, inCampaign: true, baseline: null };
+              grouped[postDate] = { date: postDate, revenue: 0, orders: 0, likes: 0, followers: 0, visitors: 0, inCampaign: true, baseline: null };
             }
             grouped[postDate].likes += post.likesCount;
 
@@ -498,7 +574,7 @@ export default function Dashboard() {
           month: 'short',
         }),
       }));
-  }, [filteredOrders, campaignPeriod, selectedCampaign, baselineData]);
+  }, [filteredOrders, dailyMetrics, campaignPeriod, selectedCampaign, baselineData]);
 
   // Trouver les index de début et fin de campagne pour le graphique
   const campaignChartRange = useMemo(() => {
@@ -531,8 +607,8 @@ export default function Dashboard() {
     // Grouper les posts par date et influenceur
     const postsByDateAndInfluencer: Record<string, Record<string, { count: number; likes: number; profilePicUrl: string }>> = {};
 
-    selectedCampaign.influencers.forEach(influencer => {
-      influencer.scrapedPosts?.forEach(post => {
+    selectedCampaign.influencers.forEach((influencer: any) => {
+      influencer.scrapedPosts?.forEach((post: any) => {
         if (post.mentionsProduct === true) {
           const postDate = new Date(post.timestamp).toISOString().split('T')[0];
 
@@ -726,48 +802,89 @@ export default function Dashboard() {
             )}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            {/* Valeur réelle */}
             <div>
-              <p className="text-sm text-foreground-secondary">CA réel</p>
+              <p className="text-sm text-foreground-secondary">
+                {chartMetric === 'sales' ? 'CA réel' : chartMetric === 'followers' ? 'Followers gagnés' : 'Visiteurs'}
+              </p>
               <p className="text-xl font-semibold text-foreground">
-                {formatCurrency(campaignStats.campaignRevenue)}
+                {chartMetric === 'sales'
+                  ? formatCurrency(campaignStats.campaignRevenue)
+                  : chartMetric === 'followers'
+                  ? `+${formatNumber(campaignStats.campaignFollowers)}`
+                  : formatNumber(campaignStats.campaignVisitors)
+                }
               </p>
               <p className="text-xs text-foreground-secondary">
-                {campaignStats.campaignOrders} commandes
+                {chartMetric === 'sales'
+                  ? `${campaignStats.campaignOrders} commandes`
+                  : `sur ${campaignStats.campaignDays} jours`
+                }
               </p>
             </div>
+            {/* Baseline attendu */}
             <div>
-              <p className="text-sm text-foreground-secondary">CA attendu (baseline)</p>
+              <p className="text-sm text-foreground-secondary">
+                {chartMetric === 'sales' ? 'CA attendu' : chartMetric === 'followers' ? 'Followers attendus' : 'Visiteurs attendus'} (baseline)
+              </p>
               <p className="text-xl font-semibold text-foreground-secondary">
-                {formatCurrency(campaignStats.expectedRevenue)}
+                {chartMetric === 'sales'
+                  ? formatCurrency(campaignStats.expectedRevenue)
+                  : chartMetric === 'followers'
+                  ? `+${formatNumber(Math.round(campaignStats.expectedFollowers))}`
+                  : formatNumber(Math.round(campaignStats.expectedVisitors))
+                }
               </p>
               <p className="text-xs text-foreground-secondary">
-                {formatCurrency(baselineData.dailyAverage)}/jour × {campaignStats.campaignDays}j
+                {chartMetric === 'sales'
+                  ? `${formatCurrency(baselineData.dailyAverage)}/jour`
+                  : chartMetric === 'followers'
+                  ? `${Math.round(baselineData.dailyFollowers)}/jour`
+                  : `${Math.round(baselineData.dailyVisitors)}/jour`
+                } × {campaignStats.campaignDays}j
               </p>
             </div>
+            {/* Impact incrémental */}
             <div>
               <p className="text-sm text-foreground-secondary">Impact campagne</p>
               <p className={`text-xl font-semibold ${
-                campaignStats.incrementalRevenue > 0 ? 'text-success' : 'text-foreground-secondary'
+                (chartMetric === 'sales' ? campaignStats.incrementalRevenue : chartMetric === 'followers' ? campaignStats.incrementalFollowers : campaignStats.incrementalVisitors) > 0
+                  ? 'text-success'
+                  : 'text-foreground-secondary'
               }`}>
-                +{formatCurrency(campaignStats.incrementalRevenue)}
+                +{chartMetric === 'sales'
+                  ? formatCurrency(campaignStats.incrementalRevenue)
+                  : formatNumber(Math.round(chartMetric === 'followers' ? campaignStats.incrementalFollowers : campaignStats.incrementalVisitors))
+                }
               </p>
               <p className="text-xs text-foreground-secondary">
-                CA additionnel généré
+                {chartMetric === 'sales' ? 'CA additionnel' : chartMetric === 'followers' ? 'Followers additionnels' : 'Visiteurs additionnels'}
               </p>
             </div>
+            {/* Variation vs baseline */}
             <div>
               <p className="text-sm text-foreground-secondary">Variation vs baseline</p>
-              <p className={`text-xl font-semibold flex items-center gap-1 ${
-                campaignStats.variation >= 0 ? 'text-success' : 'text-danger'
-              }`}>
-                {campaignStats.variation >= 0 ? (
-                  <ArrowUpRight className="w-5 h-5" />
-                ) : (
-                  <ArrowDownRight className="w-5 h-5" />
-                )}
-                {campaignStats.variation >= 0 ? '+' : ''}{campaignStats.variation.toFixed(1)}%
-              </p>
+              {(() => {
+                const variation = chartMetric === 'sales'
+                  ? campaignStats.variation
+                  : chartMetric === 'followers'
+                  ? campaignStats.followersVariation
+                  : campaignStats.visitorsVariation;
+                return (
+                  <p className={`text-xl font-semibold flex items-center gap-1 ${
+                    variation >= 0 ? 'text-success' : 'text-danger'
+                  }`}>
+                    {variation >= 0 ? (
+                      <ArrowUpRight className="w-5 h-5" />
+                    ) : (
+                      <ArrowDownRight className="w-5 h-5" />
+                    )}
+                    {variation >= 0 ? '+' : ''}{variation.toFixed(1)}%
+                  </p>
+                );
+              })()}
             </div>
+            {/* ROI (seulement pour les ventes) */}
             <div>
               <p className="text-sm text-foreground-secondary">ROI</p>
               <p className={`text-xl font-semibold ${
@@ -889,8 +1006,8 @@ export default function Dashboard() {
                 <Package className="w-6 h-6 text-warning" />
               </div>
               <div>
-                <p className="text-sm text-foreground-secondary">Produits vendus</p>
-                <p className="text-2xl font-semibold text-foreground">{stats.totalProducts}</p>
+                <p className="text-sm text-foreground-secondary">Articles vendus</p>
+                <p className="text-2xl font-semibold text-foreground">{stats.totalItemsSold}</p>
               </div>
             </div>
           </Card>
@@ -901,26 +1018,49 @@ export default function Dashboard() {
       <Card>
         <div className="flex items-center justify-between mb-6">
           <div>
-            <CardTitle>Évolution des ventes</CardTitle>
+            {/* Onglets de sélection de métrique */}
+            <div className="flex items-center gap-1 mb-2">
+              <button
+                onClick={() => setChartMetric('sales')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  chartMetric === 'sales'
+                    ? 'bg-accent text-white'
+                    : 'text-foreground-secondary hover:bg-background-secondary'
+                }`}
+              >
+                <TrendingUp className="w-4 h-4 inline mr-1.5" />
+                Ventes
+              </button>
+              <button
+                onClick={() => setChartMetric('followers')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  chartMetric === 'followers'
+                    ? 'bg-accent text-white'
+                    : 'text-foreground-secondary hover:bg-background-secondary'
+                }`}
+              >
+                <Users className="w-4 h-4 inline mr-1.5" />
+                Followers
+              </button>
+              <button
+                onClick={() => setChartMetric('visitors')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  chartMetric === 'visitors'
+                    ? 'bg-accent text-white'
+                    : 'text-foreground-secondary hover:bg-background-secondary'
+                }`}
+              >
+                <BarChart3 className="w-4 h-4 inline mr-1.5" />
+                Visiteurs
+              </button>
+            </div>
             {selectedCampaign && campaignPeriod && (
-              <p className="text-sm text-foreground-secondary mt-1">
+              <p className="text-sm text-foreground-secondary">
                 Période campagne surlignée en orange
               </p>
             )}
           </div>
           <div className="flex items-center gap-4">
-            {/* Toggle Likes */}
-            {selectedCampaign && (
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showLikesOnChart}
-                  onChange={(e) => setShowLikesOnChart(e.target.checked)}
-                  className="w-4 h-4 rounded border-border text-accent focus:ring-accent"
-                />
-                <span className="text-sm text-foreground-secondary">Afficher likes</span>
-              </label>
-            )}
             <div className="flex items-center gap-2">
               <Button
                 variant={chartType === 'bar' ? 'primary' : 'secondary'}
@@ -946,10 +1086,13 @@ export default function Dashboard() {
               <ComposedChart data={chartData} margin={{ top: 40, right: 30, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
                 <XAxis dataKey="dateLabel" tick={{ fontSize: 12 }} />
-                <YAxis yAxisId="left" tick={{ fontSize: 12 }} tickFormatter={(v) => `${v}€`} />
-                {showLikesOnChart && (
-                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} tickFormatter={(v) => formatNumber(v)} />
-                )}
+                <YAxis
+                  yAxisId="left"
+                  tick={{ fontSize: 12 }}
+                  tickFormatter={(v) =>
+                    chartMetric === 'sales' ? `${v}€` : formatNumber(v)
+                  }
+                />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -957,17 +1100,26 @@ export default function Dashboard() {
                     return (
                       <div className="bg-card border border-border rounded-lg p-3 shadow-lg">
                         <p className="font-medium text-foreground mb-2">{label}</p>
-                        <p className="text-sm text-foreground">
-                          CA: <span className="font-semibold">{formatCurrency(data?.revenue || 0)}</span>
-                        </p>
-                        {data?.baseline && (
-                          <p className="text-sm text-foreground-secondary">
-                            Baseline: {formatCurrency(data.baseline)}
+                        {chartMetric === 'sales' && (
+                          <>
+                            <p className="text-sm text-foreground">
+                              CA: <span className="font-semibold">{formatCurrency(data?.revenue || 0)}</span>
+                            </p>
+                            {data?.baseline && (
+                              <p className="text-sm text-foreground-secondary">
+                                Baseline: {formatCurrency(data.baseline)}
+                              </p>
+                            )}
+                          </>
+                        )}
+                        {chartMetric === 'followers' && (
+                          <p className="text-sm text-foreground">
+                            Followers gagnés: <span className="font-semibold">+{formatNumber(data?.followers || 0)}</span>
                           </p>
                         )}
-                        {showLikesOnChart && data?.likes > 0 && (
-                          <p className="text-sm text-[#EC4899]">
-                            Likes: {formatNumber(data.likes)}
+                        {chartMetric === 'visitors' && (
+                          <p className="text-sm text-foreground">
+                            Visiteurs: <span className="font-semibold">{formatNumber(data?.visitors || 0)}</span>
                           </p>
                         )}
                         {data?.influencerMarker && (
@@ -999,12 +1151,22 @@ export default function Dashboard() {
                 {baselineData && selectedCampaign && (
                   <ReferenceLine
                     yAxisId="left"
-                    y={baselineData.dailyAverage}
+                    y={
+                      chartMetric === 'sales'
+                        ? baselineData.dailyAverage
+                        : chartMetric === 'followers'
+                        ? baselineData.dailyFollowers
+                        : baselineData.dailyVisitors
+                    }
                     stroke="#6B7280"
                     strokeDasharray="5 5"
                     strokeWidth={2}
                     label={{
-                      value: `Baseline: ${formatCurrency(baselineData.dailyAverage)}/jour`,
+                      value: `Baseline: ${
+                        chartMetric === 'sales'
+                          ? formatCurrency(baselineData.dailyAverage)
+                          : Math.round(chartMetric === 'followers' ? baselineData.dailyFollowers : baselineData.dailyVisitors)
+                      }/jour`,
                       position: 'insideTopLeft',
                       fill: '#6B7280',
                       fontSize: 11,
@@ -1012,8 +1174,8 @@ export default function Dashboard() {
                   />
                 )}
 
-                {/* Area entre baseline et revenue (impact) */}
-                {selectedCampaign && chartType === 'line' && (
+                {/* Area entre baseline et revenue (impact) - seulement pour les ventes */}
+                {selectedCampaign && chartType === 'line' && chartMetric === 'sales' && (
                   <Area
                     yAxisId="left"
                     type="monotone"
@@ -1024,11 +1186,11 @@ export default function Dashboard() {
                   />
                 )}
 
-                {/* Barres ou Ligne pour le CA */}
+                {/* Barres ou Ligne pour la métrique sélectionnée */}
                 {chartType === 'bar' ? (
                   <Bar
                     yAxisId="left"
-                    dataKey="revenue"
+                    dataKey={chartMetric === 'sales' ? 'revenue' : chartMetric === 'followers' ? 'followers' : 'visitors'}
                     radius={[4, 4, 0, 0]}
                   >
                     {chartData.map((entry, index) => (
@@ -1042,7 +1204,7 @@ export default function Dashboard() {
                   <Line
                     yAxisId="left"
                     type="monotone"
-                    dataKey="revenue"
+                    dataKey={chartMetric === 'sales' ? 'revenue' : chartMetric === 'followers' ? 'followers' : 'visitors'}
                     stroke="#D97706"
                     strokeWidth={2}
                     dot={(props: any) => {
@@ -1083,17 +1245,6 @@ export default function Dashboard() {
                   />
                 )}
 
-                {/* Likes */}
-                {showLikesOnChart && (
-                  <Line
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="likes"
-                    stroke="#EC4899"
-                    strokeWidth={2}
-                    dot={{ fill: '#EC4899', r: 3 }}
-                  />
-                )}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -1107,11 +1258,15 @@ export default function Dashboard() {
         <div className="flex items-center justify-center gap-6 mt-4 text-sm flex-wrap">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-[#D97706]" />
-            <span className="text-foreground-secondary">CA (période campagne)</span>
+            <span className="text-foreground-secondary">
+              {chartMetric === 'sales' ? 'CA' : chartMetric === 'followers' ? 'Followers' : 'Visiteurs'} (période campagne)
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-[#9CA3AF]" />
-            <span className="text-foreground-secondary">CA (hors campagne)</span>
+            <span className="text-foreground-secondary">
+              {chartMetric === 'sales' ? 'CA' : chartMetric === 'followers' ? 'Followers' : 'Visiteurs'} (hors campagne)
+            </span>
           </div>
           {selectedCampaign && (
             <>
@@ -1124,12 +1279,6 @@ export default function Dashboard() {
                 <span className="text-foreground-secondary">Post influenceur</span>
               </div>
             </>
-          )}
-          {showLikesOnChart && (
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-[#EC4899]" />
-              <span className="text-foreground-secondary">Likes</span>
-            </div>
           )}
         </div>
       </Card>
@@ -1162,7 +1311,8 @@ export default function Dashboard() {
                   <th className="text-center py-3 px-2 font-medium">Engagement</th>
                   <th className="text-center py-3 px-2 font-medium">Ventes</th>
                   <th className="text-center py-3 px-2 font-medium">CA attribué</th>
-                  <th className="text-center py-3 px-2 font-medium">Signaux</th>
+                  <th className="text-center py-3 px-2 font-medium">Followers</th>
+                  <th className="text-center py-3 px-2 font-medium">Visiteurs</th>
                   <th className="text-center py-3 px-2 font-medium">Budget</th>
                   <th className="text-center py-3 px-2 font-medium">ROI</th>
                 </tr>
@@ -1244,35 +1394,18 @@ export default function Dashboard() {
                       </span>
                     </td>
 
-                    {/* Signaux */}
-                    <td className="py-3 px-2">
-                      <div className="flex flex-wrap justify-center gap-1">
-                        {inf.signals.temporal > 0 && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-info/10 text-info text-xs" title={`Temporel: ${formatCurrency(inf.signals.temporal)}`}>
-                            <Clock className="w-3 h-3" />
-                          </span>
-                        )}
-                        {inf.signals.newCustomer > 0 && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-success/10 text-success text-xs" title={`Nouveaux clients: ${formatCurrency(inf.signals.newCustomer)}`}>
-                            <UserPlus className="w-3 h-3" />
-                          </span>
-                        )}
-                        {inf.signals.productMatch > 0 && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-accent/10 text-accent text-xs" title={`Produit mentionné: ${formatCurrency(inf.signals.productMatch)}`}>
-                            <Tag className="w-3 h-3" />
-                          </span>
-                        )}
-                        {inf.signals.anomaly > 0 && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-warning/10 text-warning text-xs" title={`Pics: ${formatCurrency(inf.signals.anomaly)}`}>
-                            <Zap className="w-3 h-3" />
-                          </span>
-                        )}
-                        {inf.signals.baseline > 0 && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-foreground-secondary/10 text-foreground-secondary text-xs" title={`Baseline: ${formatCurrency(inf.signals.baseline)}`}>
-                            <BarChart3 className="w-3 h-3" />
-                          </span>
-                        )}
-                      </div>
+                    {/* Followers attribués */}
+                    <td className="py-3 px-2 text-center">
+                      <span className={`text-sm font-medium ${inf.attributedFollowers > 0 ? 'text-info' : 'text-foreground-secondary'}`}>
+                        +{formatNumber(inf.attributedFollowers)}
+                      </span>
+                    </td>
+
+                    {/* Visiteurs attribués */}
+                    <td className="py-3 px-2 text-center">
+                      <span className={`text-sm font-medium ${inf.attributedVisitors > 0 ? 'text-accent' : 'text-foreground-secondary'}`}>
+                        {formatNumber(inf.attributedVisitors)}
+                      </span>
                     </td>
 
                     {/* Budget */}
@@ -1313,7 +1446,12 @@ export default function Dashboard() {
                   <td className="py-3 px-2 text-center text-success font-semibold">
                     {formatCurrency(influencerTotals.attributedRevenue)}
                   </td>
-                  <td className="py-3 px-2"></td>
+                  <td className="py-3 px-2 text-center text-info font-semibold">
+                    +{formatNumber(influencerTotals.attributedFollowers)}
+                  </td>
+                  <td className="py-3 px-2 text-center text-accent font-semibold">
+                    {formatNumber(influencerTotals.attributedVisitors)}
+                  </td>
                   <td className="py-3 px-2 text-center text-foreground">
                     {formatCurrency(influencerTotals.budget)}
                   </td>

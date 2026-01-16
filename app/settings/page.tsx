@@ -6,12 +6,15 @@ import { Header } from '@/components/layout/header';
 import { Card, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/lib/auth-context';
 
 export default function SettingsPage() {
+  const { user } = useAuth();
   const [conversionWindow, setConversionWindow] = useState(48);
   const [minConfidence, setMinConfidence] = useState(60);
 
-  const shopifyConnected = true;
+  // Vérifier si l'utilisateur a Shopify connecté
+  const shopifyConnected = !!(user?.shopifyStore && user?.shopifyAccessToken);
 
   return (
     <div className="space-y-8">
@@ -55,21 +58,11 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {shopifyConnected && (
+            {shopifyConnected && user?.shopifyStore && (
               <div className="mt-4 pt-4 border-t border-border/50">
-                <div className="grid grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <p className="text-foreground-secondary">Boutique</p>
-                    <p className="font-medium text-foreground">ma-boutique.myshopify.com</p>
-                  </div>
-                  <div>
-                    <p className="text-foreground-secondary">Dernière sync</p>
-                    <p className="font-medium text-foreground">Il y a 5 minutes</p>
-                  </div>
-                  <div>
-                    <p className="text-foreground-secondary">Commandes sync</p>
-                    <p className="font-medium text-foreground">1,234</p>
-                  </div>
+                <div className="text-sm">
+                  <p className="text-foreground-secondary">Boutique</p>
+                  <p className="font-medium text-foreground">{user.shopifyStore}</p>
                 </div>
               </div>
             )}

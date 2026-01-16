@@ -3,59 +3,93 @@ import { cookies } from 'next/headers';
 
 const API_VERSION = '2024-01';
 
-// Générer des données de démonstration
+// Générer des données de démonstration FIXES pour 2025-2026
 function generateDemoOrders() {
-  const now = new Date();
-  const firstNames = ['Marie', 'Sophie', 'Emma', 'Léa', 'Camille', 'Chloé', 'Julie', 'Laura', 'Sarah', 'Alice'];
-  const lastNames = ['Martin', 'Bernard', 'Dubois', 'Thomas', 'Robert', 'Richard', 'Petit', 'Durand', 'Leroy', 'Moreau'];
+  const firstNames = ['Marie', 'Sophie', 'Emma', 'Léa', 'Camille', 'Chloé', 'Julie', 'Laura', 'Sarah', 'Alice', 'Manon', 'Lucie', 'Charlotte', 'Pauline', 'Anaïs', 'Clara', 'Inès', 'Jade', 'Louise', 'Zoé'];
+  const lastNames = ['Martin', 'Bernard', 'Dubois', 'Thomas', 'Robert', 'Richard', 'Petit', 'Durand', 'Leroy', 'Moreau', 'Simon', 'Laurent', 'Michel', 'Garcia', 'David', 'Bertrand', 'Roux', 'Vincent', 'Fournier', 'Morel'];
+
+  const products = [
+    { id: 1001, title: 'Sérum Hydratant Intense', price: 45.00 },
+    { id: 1002, title: 'Crème Anti-Âge Premium', price: 89.00 },
+    { id: 1003, title: 'Huile Visage Éclat', price: 38.00 },
+    { id: 1004, title: 'Masque Purifiant', price: 29.00 },
+    { id: 1005, title: 'Contour des Yeux', price: 52.00 },
+    { id: 1006, title: 'Eau Micellaire Bio', price: 18.00 },
+    { id: 1007, title: 'Coffret Routine Complète', price: 149.00 },
+    { id: 1008, title: 'Gommage Doux Visage', price: 25.00 },
+  ];
+
+  // Seed fixe pour données reproductibles
+  let seed = 42;
+  const seededRandom = () => {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+  };
 
   const orders = [];
-  for (let i = 0; i < 47; i++) {
-    const daysAgo = Math.floor(Math.random() * 30);
-    const orderDate = new Date(now);
-    orderDate.setDate(orderDate.getDate() - daysAgo);
+  let orderId = 1001;
 
-    const firstName = firstNames[Math.floor(Math.random() * firstNames.length)];
-    const lastName = lastNames[Math.floor(Math.random() * lastNames.length)];
-    const total = (Math.random() * 150 + 30).toFixed(2);
+  // Générer des commandes de janvier 2025 à aujourd'hui
+  const startDate = new Date('2025-01-01');
+  const endDate = new Date('2026-01-16');
 
-    orders.push({
-      id: 1000 + i,
-      order_number: 1000 + i,
-      name: `#${1000 + i}`,
-      email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@email.com`,
-      created_at: orderDate.toISOString(),
-      total_price: total,
-      currency: 'EUR',
-      financial_status: 'paid',
-      customer: {
-        id: 100 + i,
-        email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@email.com`,
-        first_name: firstName,
-        last_name: lastName,
-      },
-      line_items: [],
-    });
+  for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+    const dayOfWeek = d.getDay();
+
+    // Base: 4-8 commandes par jour, moins le weekend
+    let baseOrders = dayOfWeek === 0 || dayOfWeek === 6 ? 3 : 6;
+
+    // Variation aléatoire mais déterministe
+    baseOrders += Math.floor(seededRandom() * 4) - 1;
+    if (baseOrders < 2) baseOrders = 2;
+
+    for (let i = 0; i < baseOrders; i++) {
+      const hour = 8 + Math.floor(seededRandom() * 14); // 8h-22h
+      const minute = Math.floor(seededRandom() * 60);
+      const orderDate = new Date(d);
+      orderDate.setHours(hour, minute, 0, 0);
+
+      const firstName = firstNames[Math.floor(seededRandom() * firstNames.length)];
+      const lastName = lastNames[Math.floor(seededRandom() * lastNames.length)];
+
+      // 1 à 3 produits par commande
+      const numProducts = Math.floor(seededRandom() * 3) + 1;
+      const lineItems = [];
+      let total = 0;
+
+      for (let p = 0; p < numProducts; p++) {
+        const product = products[Math.floor(seededRandom() * products.length)];
+        const quantity = seededRandom() > 0.8 ? 2 : 1;
+        lineItems.push({
+          product_id: product.id,
+          title: product.title,
+          quantity,
+          price: product.price.toFixed(2),
+        });
+        total += product.price * quantity;
+      }
+
+      orders.push({
+        id: orderId,
+        order_number: orderId,
+        name: `#${orderId}`,
+        email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${Math.floor(seededRandom() * 100)}@email.com`,
+        created_at: orderDate.toISOString(),
+        total_price: total.toFixed(2),
+        currency: 'EUR',
+        financial_status: 'paid',
+        customer: {
+          id: orderId + 10000,
+          email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${Math.floor(seededRandom() * 100)}@email.com`,
+          first_name: firstName,
+          last_name: lastName,
+        },
+        line_items: lineItems,
+      });
+
+      orderId++;
+    }
   }
-
-  // Ajouter Cyprien Clermontel pour les tests de matching
-  orders.push({
-    id: 9999,
-    order_number: 9999,
-    name: '#9999',
-    email: 'cyprien.clermontel@email.com',
-    created_at: '2026-01-15T14:30:00.000Z',
-    total_price: '89.00',
-    currency: 'EUR',
-    financial_status: 'paid',
-    customer: {
-      id: 9999,
-      email: 'cyprien.clermontel@email.com',
-      first_name: 'Cyprien',
-      last_name: 'Clermontel',
-    },
-    line_items: [],
-  });
 
   return orders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
@@ -92,16 +126,24 @@ async function getShopifyCredentials(): Promise<{ store: string; accessToken: st
 
 export async function GET(request: NextRequest) {
   try {
-    const credentials = await getShopifyCredentials();
+    // Paramètres de pagination et filtrage
+    const searchParams = request.nextUrl.searchParams;
+    const forceDemo = searchParams.get('demo') === 'true';
 
-    if (!credentials) {
-      // Retourner les données de démo si pas de credentials
-      console.log('No Shopify credentials, returning demo orders');
+    // Si mode démo forcé, retourner les données de démo
+    if (forceDemo) {
+      console.log('Demo mode forced, returning demo orders');
       return NextResponse.json({ orders: generateDemoOrders(), isDemo: true });
     }
 
-    // Paramètres de pagination et filtrage
-    const searchParams = request.nextUrl.searchParams;
+    const credentials = await getShopifyCredentials();
+
+    if (!credentials) {
+      // Retourner des données vides si pas de credentials (pas de démo par défaut)
+      console.log('No Shopify credentials, returning empty orders');
+      return NextResponse.json({ orders: [], isDemo: false });
+    }
+
     const limit = searchParams.get('limit') || '50';
     const status = searchParams.get('status') || 'any';
     const createdAtMin = searchParams.get('created_at_min') || '';
@@ -129,8 +171,8 @@ export async function GET(request: NextRequest) {
     if (!response.ok) {
       const error = await response.text();
       console.error('Shopify orders error:', response.status, error);
-      // Retourner les données de démo en cas d'erreur Shopify
-      return NextResponse.json({ orders: generateDemoOrders(), isDemo: true, error: `Shopify API error: ${response.status}` });
+      // Retourner une erreur, pas de données démo par défaut
+      return NextResponse.json({ orders: [], error: `Shopify API error: ${response.status}` }, { status: response.status });
     }
 
     const data = await response.json();
@@ -138,7 +180,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data);
   } catch (error) {
     console.error('Orders API error:', error);
-    // Retourner les données de démo en cas d'erreur
-    return NextResponse.json({ orders: generateDemoOrders(), isDemo: true });
+    return NextResponse.json({ orders: [], error: 'Server error' }, { status: 500 });
   }
 }
