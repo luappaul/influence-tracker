@@ -126,22 +126,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const initAuth = async () => {
       console.log('[Auth] initAuth starting...');
 
-      // Vérifier d'abord si c'est un utilisateur démo (localStorage)
+      // Vérifier d'abord localStorage (source de vérité principale)
       const storedUser = localStorage.getItem('influence-tracker-user');
       console.log('[Auth] localStorage user:', storedUser ? 'found' : 'not found');
 
       if (storedUser) {
         try {
           const parsedUser = JSON.parse(storedUser);
-          // Si c'est un utilisateur démo, l'utiliser directement
-          if (parsedUser.id === 'demo-user') {
-            console.log('[Auth] Using demo user from localStorage');
-            setUser(parsedUser);
-            setIsLoading(false);
-            return;
+          console.log('[Auth] Using stored user:', parsedUser.id);
+          setUser(parsedUser);
+
+          // For non-demo users, try to refresh from Supabase in background
+          if (parsedUser.id !== 'demo-user' && isSupabaseConfigured()) {
+            const supabase = createClient();
+            supabase.auth.getSession().then(async ({ data: { session } }) => {
+              if (session?.user) {
+                console.log('[Auth] Refreshed user profile from Supabase');
+                const userProfile = await loadUserProfile(session.user);
+                setUser(userProfile);
+                localStorage.setItem('influence-tracker-user', JSON.stringify(userProfile));
+              }
+            }).catch(e => console.log('[Auth] Background refresh failed:', e));
           }
-          // For real users, keep the stored user as fallback while we check Supabase
-          console.log('[Auth] Found stored real user:', parsedUser.id);
+
+          setIsLoading(false);
+          return;
         } catch (e) {
           console.error('[Auth] Error parsing stored user:', e);
         }
@@ -175,16 +184,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const userProfile = await loadUserProfile(session.user);
           console.log('[Auth] User profile loaded:', userProfile.id);
           setUser(userProfile);
-        } else if (storedUser) {
-          // If no Supabase session but we have a stored user, use it as fallback
-          // This handles cases where cookies might be lost but localStorage persists
-          try {
-            const parsedUser = JSON.parse(storedUser);
-            console.log('[Auth] No Supabase session, using localStorage fallback:', parsedUser.id);
-            setUser(parsedUser);
-          } catch (e) {
-            console.error('[Auth] Error using localStorage fallback:', e);
-          }
+          localStorage.setItem('influence-tracker-user', JSON.stringify(userProfile));
         }
 
         // Écouter les changements de session
@@ -193,6 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (event === 'SIGNED_IN' && session?.user) {
             const userProfile = await loadUserProfile(session.user);
             setUser(userProfile);
+            localStorage.setItem('influence-tracker-user', JSON.stringify(userProfile));
           } else if (event === 'SIGNED_OUT') {
             setUser(null);
             localStorage.removeItem('influence-tracker-user');
@@ -203,6 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return () => subscription.unsubscribe();
       }
 
+      console.log('[Auth] No auth source found');
       setIsLoading(false);
     };
 
