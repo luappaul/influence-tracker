@@ -37,6 +37,15 @@ function OnboardingContent() {
   const [instagramConnected, setInstagramConnected] = useState(false);
   const [instagramUsername, setInstagramUsername] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+
+  // Wait for auth to be ready
+  useEffect(() => {
+    if (!isLoading) {
+      console.log('Auth loaded, user:', user ? { id: user.id, email: user.email } : 'null');
+      setAuthReady(true);
+    }
+  }, [isLoading, user]);
 
   // Persist current step to localStorage
   useEffect(() => {
@@ -90,14 +99,35 @@ function OnboardingContent() {
   const completeOnboarding = async () => {
     if (isSaving) return;
 
-    // Wait for user to be loaded
-    if (isLoading) {
-      console.log('Waiting for auth to load...');
+    // Wait for auth to be fully loaded
+    if (isLoading || !authReady) {
+      console.log('Waiting for auth to load... isLoading:', isLoading, 'authReady:', authReady);
       return;
     }
 
+    console.log('completeOnboarding called, user state:', user ? { id: user.id, email: user.email } : 'null');
+
     if (!user) {
-      console.error('No user found, cannot complete onboarding');
+      // Try to get user from localStorage as fallback
+      const storedUser = localStorage.getItem('influence-tracker-user');
+      console.log('No user in context, checking localStorage:', storedUser ? 'found' : 'not found');
+
+      if (storedUser) {
+        try {
+          const parsedUser = JSON.parse(storedUser);
+          console.log('Using stored user:', parsedUser.id);
+          // Use the stored user directly
+          parsedUser.onboardingCompleted = true;
+          localStorage.setItem('influence-tracker-user', JSON.stringify(parsedUser));
+          localStorage.removeItem('onboarding-step');
+          router.push('/campaigns/new');
+          return;
+        } catch (e) {
+          console.error('Error parsing stored user:', e);
+        }
+      }
+
+      console.error('No user found anywhere, redirecting to login');
       alert('Erreur: Session expirée. Veuillez vous reconnecter.');
       router.push('/login');
       return;

@@ -124,19 +124,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Vérifier l'authentification au chargement
   useEffect(() => {
     const initAuth = async () => {
+      console.log('[Auth] initAuth starting...');
+
       // Vérifier d'abord si c'est un utilisateur démo (localStorage)
       const storedUser = localStorage.getItem('influence-tracker-user');
+      console.log('[Auth] localStorage user:', storedUser ? 'found' : 'not found');
+
       if (storedUser) {
         try {
           const parsedUser = JSON.parse(storedUser);
           // Si c'est un utilisateur démo, l'utiliser directement
           if (parsedUser.id === 'demo-user') {
+            console.log('[Auth] Using demo user from localStorage');
             setUser(parsedUser);
             setIsLoading(false);
             return;
           }
+          // For real users, keep the stored user as fallback while we check Supabase
+          console.log('[Auth] Found stored real user:', parsedUser.id);
         } catch (e) {
-          console.error('Error parsing stored user:', e);
+          console.error('[Auth] Error parsing stored user:', e);
         }
       }
 
@@ -145,27 +152,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (cookieUser) {
         try {
           const userData = JSON.parse(cookieUser);
+          console.log('[Auth] Using user from Shopify cookie');
           setUser(userData);
           localStorage.setItem('influence-tracker-user', cookieUser);
           setIsLoading(false);
           return;
         } catch (e) {
-          console.error('Error parsing user cookie:', e);
+          console.error('[Auth] Error parsing user cookie:', e);
         }
       }
 
       // Sinon, vérifier la session Supabase
       if (isSupabaseConfigured()) {
+        console.log('[Auth] Checking Supabase session...');
         const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+        console.log('[Auth] Supabase session:', session ? 'found' : 'not found', sessionError ? `error: ${sessionError.message}` : '');
 
         if (session?.user) {
+          console.log('[Auth] Loading user profile for:', session.user.id);
           const userProfile = await loadUserProfile(session.user);
+          console.log('[Auth] User profile loaded:', userProfile.id);
           setUser(userProfile);
+        } else if (storedUser) {
+          // If no Supabase session but we have a stored user, use it as fallback
+          // This handles cases where cookies might be lost but localStorage persists
+          try {
+            const parsedUser = JSON.parse(storedUser);
+            console.log('[Auth] No Supabase session, using localStorage fallback:', parsedUser.id);
+            setUser(parsedUser);
+          } catch (e) {
+            console.error('[Auth] Error using localStorage fallback:', e);
+          }
         }
 
         // Écouter les changements de session
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+          console.log('[Auth] Auth state changed:', event, session?.user?.id);
           if (event === 'SIGNED_IN' && session?.user) {
             const userProfile = await loadUserProfile(session.user);
             setUser(userProfile);
