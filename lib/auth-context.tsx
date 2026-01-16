@@ -93,6 +93,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .eq('id', supabaseUser.id)
       .single();
 
+    // Check localStorage for cached onboarding status (handles race conditions)
+    let onboardingCompleted = profile?.onboarding_completed || false;
+    try {
+      const storedUser = localStorage.getItem('influence-tracker-user');
+      if (storedUser) {
+        const cached = JSON.parse(storedUser);
+        // If localStorage says onboarding is completed, trust it (it was set locally)
+        if (cached.id === supabaseUser.id && cached.onboardingCompleted === true) {
+          onboardingCompleted = true;
+        }
+      }
+    } catch (e) {
+      // Ignore parsing errors
+    }
+
     return {
       id: supabaseUser.id,
       email: supabaseUser.email || '',
@@ -102,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       shopifyStore: profile?.shopify_store,
       shopifyAccessToken: profile?.shopify_access_token,
       avatar: supabaseUser.user_metadata?.avatar_url,
-      onboardingCompleted: profile?.onboarding_completed || false,
+      onboardingCompleted,
     };
   };
 
@@ -395,14 +410,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Update user
   const updateUser = async (updatedUser: User) => {
-    setUser(updatedUser);
+    // Update localStorage first (this survives page navigation)
     localStorage.setItem('influence-tracker-user', JSON.stringify(updatedUser));
+    setUser(updatedUser);
 
     // Si Supabase est configuré, mettre à jour le profil
     if (isSupabaseConfigured() && updatedUser.id !== 'demo-user') {
       try {
         const supabase = createClient();
-        await supabase.from('profiles').upsert({
+        const { error } = await supabase.from('profiles').upsert({
           id: updatedUser.id,
           full_name: updatedUser.name,
           company_name: updatedUser.companyName,
@@ -411,8 +427,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           shopify_access_token: updatedUser.shopifyAccessToken,
           onboarding_completed: updatedUser.onboardingCompleted,
         });
+        if (error) {
+          console.error('Error updating profile in Supabase:', error);
+          // Don't throw - localStorage is already updated, so state is consistent
+        }
       } catch (e) {
         console.error('Error updating profile:', e);
+        // Don't throw - localStorage is already updated
       }
     }
   };

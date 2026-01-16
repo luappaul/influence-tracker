@@ -89,19 +89,39 @@ function OnboardingContent() {
 
   const completeOnboarding = async () => {
     if (isSaving) return;
+
+    // Wait for user to be loaded
+    if (isLoading) {
+      console.log('Waiting for auth to load...');
+      return;
+    }
+
+    if (!user) {
+      console.error('No user found, cannot complete onboarding');
+      alert('Erreur: Session expirée. Veuillez vous reconnecter.');
+      router.push('/login');
+      return;
+    }
+
     setIsSaving(true);
 
     try {
       // Mark onboarding as completed
-      if (user) {
-        await updateUser({ ...user, onboardingCompleted: true });
-      }
+      console.log('Completing onboarding for user:', user.id);
+      await updateUser({ ...user, onboardingCompleted: true });
+      console.log('Onboarding completed successfully');
+
       // Clean up localStorage
       localStorage.removeItem('onboarding-step');
+
+      // Small delay to ensure state is saved
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       // Redirect to new campaign page
       router.push('/campaigns/new');
     } catch (error) {
       console.error('Error completing onboarding:', error);
+      alert('Erreur lors de la sauvegarde. Veuillez réessayer.');
       setIsSaving(false);
     }
   };
