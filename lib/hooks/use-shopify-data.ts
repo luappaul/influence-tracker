@@ -288,23 +288,50 @@ export function useShopifyData(): UseShopifyDataReturn {
   // Fetch Instagram follower data
   const fetchInstagramData = async (): Promise<DailyMetrics[]> => {
     try {
-      const response = await fetch('/api/instagram/insights');
-      if (!response.ok) {
-        console.log('Instagram insights not available');
-        return [];
+      // Check localStorage for Instagram credentials
+      let apiUrl = '/api/instagram/insights';
+      const instagramConnection = localStorage.getItem('instagram-connection');
+
+      if (instagramConnection) {
+        try {
+          const connection = JSON.parse(instagramConnection);
+          if (connection.access_token && connection.user_id) {
+            // Pass token via URL params for non-Supabase users
+            apiUrl += `?token=${encodeURIComponent(connection.access_token)}&user_id=${encodeURIComponent(connection.user_id)}`;
+          }
+        } catch (e) {
+          console.log('Error parsing Instagram connection:', e);
+        }
       }
 
+      const response = await fetch(apiUrl);
       const data = await response.json();
-      if (!data.connected || !data.dailyFollowers) {
+
+      if (!data.connected && !data.currentFollowers) {
+        console.log('Instagram not connected');
         return [];
       }
 
-      // Convert Instagram data to DailyMetrics format
-      return data.dailyFollowers.map((d: { date: string; followers: number }) => ({
-        date: d.date,
-        followers: d.followers,
-        visitors: 0, // Will be filled by Shopify later
-      }));
+      // If we have daily followers data from the Insights API
+      if (data.dailyFollowers && data.dailyFollowers.length > 0) {
+        return data.dailyFollowers.map((d: { date: string; followers: number }) => ({
+          date: d.date,
+          followers: d.followers,
+          visitors: 0,
+        }));
+      }
+
+      // Fallback: just use current follower count for today
+      if (data.currentFollowers) {
+        const today = new Date().toISOString().split('T')[0];
+        return [{
+          date: today,
+          followers: data.currentFollowers,
+          visitors: 0,
+        }];
+      }
+
+      return [];
     } catch (err) {
       console.log('Error fetching Instagram data:', err);
       return [];

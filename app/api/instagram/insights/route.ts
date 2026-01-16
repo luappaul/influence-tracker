@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { cookies } from 'next/headers';
 
 interface InsightValue {
   value: number;
@@ -26,35 +27,45 @@ interface InstagramUserResponse {
   media_count: number;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    // Get the current user's Instagram access token from Supabase
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    let accessToken: string | null = null;
+    let instagramUserId: string | null = null;
 
-    if (!user) {
-      return NextResponse.json(
-        { error: 'Not authenticated' },
-        { status: 401 }
-      );
+    // Try to get Instagram token from Supabase first
+    try {
+      const supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('instagram_access_token, instagram_user_id')
+          .eq('id', user.id)
+          .single();
+
+        if (profile?.instagram_access_token) {
+          accessToken = profile.instagram_access_token;
+          instagramUserId = profile.instagram_user_id;
+        }
+      }
+    } catch (supabaseError) {
+      console.log('Supabase auth check failed, trying URL params:', supabaseError);
     }
 
-    // Get the Instagram access token from the user's profile
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('instagram_access_token, instagram_user_id')
-      .eq('id', user.id)
-      .single();
+    // If no token from Supabase, check URL params (for testing or localStorage-based users)
+    if (!accessToken) {
+      const { searchParams } = new URL(request.url);
+      accessToken = searchParams.get('token');
+      instagramUserId = searchParams.get('user_id');
+    }
 
-    if (profileError || !profile?.instagram_access_token) {
+    if (!accessToken) {
       return NextResponse.json(
         { error: 'Instagram not connected', connected: false },
-        { status: 400 }
+        { status: 200 } // Return 200 with connected: false instead of error
       );
     }
-
-    const accessToken = profile.instagram_access_token;
-    const instagramUserId = profile.instagram_user_id;
 
     // First, get current user info (including current followers count)
     const userResponse = await fetch(

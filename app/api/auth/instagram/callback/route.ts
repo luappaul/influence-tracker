@@ -138,14 +138,18 @@ export async function GET(request: Request) {
       console.log('Database save skipped:', dbError);
     }
 
-    // Redirect back to onboarding or settings with success
-    // Check if user came from onboarding (stored in cookie) or default to onboarding
-    const redirectTo = request.headers.get('referer')?.includes('onboarding')
-      ? 'onboarding'
-      : 'onboarding'; // Default to onboarding for now
+    // Redirect back to onboarding with success and Instagram data
+    // Include token and user_id so frontend can store in localStorage for non-Supabase users
+    const redirectParams = new URLSearchParams({
+      instagram_connected: 'true',
+      instagram_username: userData.username,
+      instagram_user_id: userData.id,
+      instagram_token: accessToken,
+      instagram_followers: String(userData.followers_count || 0),
+    });
 
     return NextResponse.redirect(
-      `https://datafluence.vercel.app/${redirectTo}?instagram_connected=true&instagram_username=${userData.username}`
+      `https://datafluence.vercel.app/onboarding?${redirectParams.toString()}`
     );
 
   } catch (error) {

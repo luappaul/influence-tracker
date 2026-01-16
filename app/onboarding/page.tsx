@@ -58,17 +58,37 @@ function OnboardingContent() {
   useEffect(() => {
     const connected = searchParams.get('instagram_connected');
     const username = searchParams.get('instagram_username');
+    const userId = searchParams.get('instagram_user_id');
+    const token = searchParams.get('instagram_token');
+    const followers = searchParams.get('instagram_followers');
     const error = searchParams.get('instagram_error');
 
     if (connected === 'true' && username) {
       setInstagramConnected(true);
       setInstagramUsername(username);
       setCurrentStep('social'); // Make sure we're on the social step
+
+      // Store Instagram data in localStorage for the insights API
+      if (token && userId) {
+        const instagramData = {
+          user_id: userId,
+          username: username,
+          access_token: token,
+          followers_count: parseInt(followers || '0', 10),
+          connected_at: new Date().toISOString(),
+        };
+        localStorage.setItem('instagram-connection', JSON.stringify(instagramData));
+        console.log('Instagram connection saved to localStorage');
+      }
+
+      // Clean up URL params
+      window.history.replaceState({}, '', '/onboarding');
     }
 
     if (error) {
       console.error('Instagram OAuth error:', error);
       alert('Erreur lors de la connexion Instagram. Veuillez réessayer.');
+      window.history.replaceState({}, '', '/onboarding');
     }
   }, [searchParams]);
 
