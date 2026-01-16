@@ -37,19 +37,19 @@ export async function GET(request: Request) {
   if (error) {
     console.error('Instagram OAuth error:', { error, errorReason, errorDescription });
     return NextResponse.redirect(
-      `https://datafluence.vercel.app/settings?instagram_error=${encodeURIComponent(errorDescription || error)}`
+      `https://datafluence.vercel.app/onboarding?instagram_error=${encodeURIComponent(errorDescription || error)}`
     );
   }
 
   if (!code) {
     return NextResponse.redirect(
-      'https://datafluence.vercel.app/settings?instagram_error=no_code'
+      'https://datafluence.vercel.app/onboarding?instagram_error=no_code'
     );
   }
 
   if (!INSTAGRAM_APP_ID || !INSTAGRAM_APP_SECRET) {
     return NextResponse.redirect(
-      'https://datafluence.vercel.app/settings?instagram_error=config_error'
+      'https://datafluence.vercel.app/onboarding?instagram_error=config_error'
     );
   }
 
@@ -73,7 +73,7 @@ export async function GET(request: Request) {
       const errorData = await tokenResponse.text();
       console.error('Token exchange failed:', errorData);
       return NextResponse.redirect(
-        'https://datafluence.vercel.app/settings?instagram_error=token_exchange_failed'
+        'https://datafluence.vercel.app/onboarding?instagram_error=token_exchange_failed'
       );
     }
 
@@ -102,7 +102,7 @@ export async function GET(request: Request) {
       const errorData = await userResponse.text();
       console.error('Failed to get user profile:', errorData);
       return NextResponse.redirect(
-        'https://datafluence.vercel.app/settings?instagram_error=profile_fetch_failed'
+        'https://datafluence.vercel.app/onboarding?instagram_error=profile_fetch_failed'
       );
     }
 
@@ -140,15 +140,20 @@ export async function GET(request: Request) {
       });
     }
 
-    // Redirect back to settings with success
+    // Redirect back to onboarding or settings with success
+    // Check if user came from onboarding (stored in cookie) or default to onboarding
+    const redirectTo = request.headers.get('referer')?.includes('onboarding')
+      ? 'onboarding'
+      : 'onboarding'; // Default to onboarding for now
+
     return NextResponse.redirect(
-      `https://datafluence.vercel.app/settings?instagram_connected=true&instagram_username=${userData.username}`
+      `https://datafluence.vercel.app/${redirectTo}?instagram_connected=true&instagram_username=${userData.username}`
     );
 
   } catch (error) {
     console.error('Instagram OAuth callback error:', error);
     return NextResponse.redirect(
-      'https://datafluence.vercel.app/settings?instagram_error=unknown_error'
+      'https://datafluence.vercel.app/onboarding?instagram_error=unknown_error'
     );
   }
 }

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
@@ -13,15 +13,38 @@ import {
   Sparkles,
   SkipForward,
   ExternalLink,
+  CheckCircle,
+  Loader2,
 } from 'lucide-react';
 
 type OnboardingStep = 'welcome' | 'shopify' | 'social' | 'complete';
 
-export default function OnboardingPage() {
+function OnboardingContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, updateUser } = useAuth();
   const [currentStep, setCurrentStep] = useState<OnboardingStep>('welcome');
   const [isConnectingShopify, setIsConnectingShopify] = useState(false);
+  const [instagramConnected, setInstagramConnected] = useState(false);
+  const [instagramUsername, setInstagramUsername] = useState<string | null>(null);
+
+  // Check for Instagram OAuth callback
+  useEffect(() => {
+    const connected = searchParams.get('instagram_connected');
+    const username = searchParams.get('instagram_username');
+    const error = searchParams.get('instagram_error');
+
+    if (connected === 'true' && username) {
+      setInstagramConnected(true);
+      setInstagramUsername(username);
+      setCurrentStep('social'); // Make sure we're on the social step
+    }
+
+    if (error) {
+      console.error('Instagram OAuth error:', error);
+      // Could show a toast/alert here
+    }
+  }, [searchParams]);
 
   const handleShopifyConnect = () => {
     setIsConnectingShopify(true);
@@ -213,6 +236,18 @@ export default function OnboardingPage() {
 
             <div className="space-y-3 max-w-md mx-auto">
               {/* Instagram */}
+              {instagramConnected ? (
+                <div className="w-full flex items-center gap-4 p-4 rounded-lg border border-success/50 bg-success/5">
+                  <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#833AB4] via-[#E1306C] to-[#F77737] flex items-center justify-center">
+                    <Instagram className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className="font-medium text-foreground">Instagram</p>
+                    <p className="text-sm text-success">@{instagramUsername} connecté</p>
+                  </div>
+                  <CheckCircle className="w-6 h-6 text-success" />
+                </div>
+              ) : (
               <button
                 onClick={() => handleSocialConnect('Instagram')}
                 className="w-full flex items-center gap-4 p-4 rounded-lg border border-border hover:border-accent/50 hover:bg-accent/5 transition-colors"
@@ -226,6 +261,7 @@ export default function OnboardingPage() {
                 </div>
                 <ArrowRight className="w-5 h-5 text-foreground-secondary" />
               </button>
+              )}
 
               {/* TikTok */}
               <button
@@ -279,5 +315,19 @@ export default function OnboardingPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function OnboardingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-background">
+          <Loader2 className="w-8 h-8 text-accent animate-spin" />
+        </div>
+      }
+    >
+      <OnboardingContent />
+    </Suspense>
   );
 }
