@@ -70,14 +70,20 @@ export async function GET(request: Request) {
     });
 
     if (!tokenResponse.ok) {
-      const errorData = await tokenResponse.text();
-      console.error('Token exchange failed:', errorData);
+      const errorText = await tokenResponse.text();
+      console.error('Token exchange failed:', tokenResponse.status, errorText);
+      let errorDetail = 'token_exchange_failed';
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorDetail = errorJson.error_message || errorJson.error?.message || errorDetail;
+      } catch {}
       return NextResponse.redirect(
-        'https://datafluence.vercel.app/onboarding?instagram_error=token_exchange_failed'
+        `https://datafluence.vercel.app/onboarding?instagram_error=${encodeURIComponent(errorDetail)}`
       );
     }
 
     const tokenData: TokenResponse = await tokenResponse.json();
+    console.log('Token exchange successful, user_id:', tokenData.user_id);
 
     // Step 2: Exchange short-lived token for long-lived token (60 days)
     const longLivedResponse = await fetch(
@@ -108,36 +114,28 @@ export async function GET(request: Request) {
 
     const userData: InstagramUser = await userResponse.json();
 
-    // Step 4: Save to Supabase (if user is logged in)
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    // Step 4: Try to save to Supabase (if user is logged in)
+    // This is optional - the OAuth still succeeds even without saving
+    try {
+      const supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
 
-    if (user) {
-      // Save Instagram connection to user's profile
-      await supabase.from('profiles').update({
-        instagram_user_id: userData.id,
-        instagram_username: userData.username,
-        instagram_access_token: accessToken,
-        instagram_token_expires_at: new Date(Date.now() + expiresIn * 1000).toISOString(),
-        instagram_connected_at: new Date().toISOString(),
-      }).eq('id', user.id);
+      if (user) {
+        // Save Instagram connection to user's profile
+        // Note: These columns need to exist in the profiles table
+        const { error: updateError } = await supabase.from('profiles').update({
+          instagram_user_id: userData.id,
+          instagram_username: userData.username,
+          instagram_access_token: accessToken,
+        }).eq('id', user.id);
 
-      // Also save to a separate instagram_connections table for more data
-      await supabase.from('instagram_connections').upsert({
-        user_id: user.id,
-        instagram_user_id: userData.id,
-        username: userData.username,
-        name: userData.name,
-        profile_picture_url: userData.profile_picture_url,
-        followers_count: userData.followers_count,
-        follows_count: userData.follows_count,
-        media_count: userData.media_count,
-        access_token: accessToken,
-        token_expires_at: new Date(Date.now() + expiresIn * 1000).toISOString(),
-        updated_at: new Date().toISOString(),
-      }, {
-        onConflict: 'user_id',
-      });
+        if (updateError) {
+          console.log('Could not save Instagram to profile (columns may not exist):', updateError.message);
+        }
+      }
+    } catch (dbError) {
+      // Don't fail the OAuth just because DB save failed
+      console.log('Database save skipped:', dbError);
     }
 
     // Redirect back to onboarding or settings with success
@@ -151,9 +149,10 @@ export async function GET(request: Request) {
     );
 
   } catch (error) {
-    console.error('Instagram OAuth callback error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'unknown_error';
+    console.error('Instagram OAuth callback error:', errorMessage, error);
     return NextResponse.redirect(
-      'https://datafluence.vercel.app/onboarding?instagram_error=unknown_error'
+      `https://datafluence.vercel.app/onboarding?instagram_error=${encodeURIComponent(errorMessage)}`
     );
   }
 }

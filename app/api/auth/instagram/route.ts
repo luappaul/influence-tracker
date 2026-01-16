@@ -5,11 +5,10 @@ const REDIRECT_URI = process.env.NODE_ENV === 'production'
   ? 'https://datafluence.vercel.app/api/auth/instagram/callback'
   : 'https://datafluence.vercel.app/api/auth/instagram/callback'; // Use production URL for testing
 
+// Only request the scopes we actually need
+// Note: These must be approved by Meta for non-testers
 const SCOPES = [
   'instagram_business_basic',
-  'instagram_business_manage_messages',
-  'instagram_business_manage_comments',
-  'instagram_business_content_publish',
   'instagram_business_manage_insights',
 ].join(',');
 
