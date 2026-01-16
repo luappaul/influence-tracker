@@ -38,8 +38,13 @@ export default function OnboardingPage() {
   };
 
   const handleSocialConnect = (platform: string) => {
-    // TODO: Implement social OAuth
-    alert(`La connexion ${platform} sera disponible prochainement !`);
+    if (platform === 'Instagram') {
+      // Redirect to Instagram OAuth
+      window.location.href = '/api/auth/instagram';
+    } else {
+      // TikTok and LinkedIn not yet implemented
+      alert(`La connexion ${platform} sera disponible prochainement !`);
+    }
   };
 
   const completeOnboarding = async () => {
