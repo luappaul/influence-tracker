@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Users, TrendingUp, ExternalLink } from 'lucide-react';
 import { Influencer } from '@/lib/types';
+import { InfluencerWithHistory } from '@/lib/mock-data';
 import { Card } from '@/components/ui/card';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -11,7 +12,7 @@ import { getInfluencerROAS } from '@/lib/mock-data';
 import { LiftBadge } from '@/components/charts/lift-indicator';
 
 interface InfluencerCardProps {
-  influencer: Influencer;
+  influencer: InfluencerWithHistory;
   showPerformance?: boolean;
 }
 
@@ -80,7 +81,7 @@ export function InfluencerCard({ influencer, showPerformance = true }: Influence
 
 // Version ligne pour les tableaux
 interface InfluencerRowProps {
-  influencer: Influencer;
+  influencer: InfluencerWithHistory;
   rank?: number;
 }
 

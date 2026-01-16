@@ -16,9 +16,15 @@ import {
   Save,
   Loader2,
   X,
-  Calendar
+  Calendar,
+  Target,
+  TrendingUp,
+  Megaphone,
+  Sparkles,
+  ShoppingBag
 } from 'lucide-react';
 import Link from 'next/link';
+import { campaignObjectives, CampaignObjective } from '@/lib/mock-data';
 
 interface InfluencerEntry {
   id: string;
@@ -39,9 +45,18 @@ interface SearchResult {
   followers_count: number;
 }
 
+// Icônes pour les objectifs
+const objectiveIcons: Record<CampaignObjective, React.ReactNode> = {
+  ventes: <ShoppingBag className="w-5 h-5" />,
+  notoriete: <Megaphone className="w-5 h-5" />,
+  engagement: <TrendingUp className="w-5 h-5" />,
+  lancement: <Sparkles className="w-5 h-5" />,
+};
+
 export default function NewCampaignPage() {
   const router = useRouter();
   const [campaignName, setCampaignName] = useState('');
+  const [objective, setObjective] = useState<CampaignObjective>('ventes');
   const [influencers, setInfluencers] = useState<InfluencerEntry[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -133,6 +148,7 @@ export default function NewCampaignPage() {
     const newCampaign = {
       id: `camp-${Date.now()}`,
       name: campaignName,
+      objective: objective,
       status: 'active',
       influencers: influencers.map((i) => ({
         ...i,
@@ -174,18 +190,53 @@ export default function NewCampaignPage() {
         </div>
       </div>
 
-      {/* Nom de la campagne */}
+      {/* Informations de la campagne */}
       <Card>
         <CardTitle className="mb-4">Informations</CardTitle>
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-2">
-            Nom de la campagne
-          </label>
-          <Input
-            placeholder="Ex: Lancement Été 2024"
-            value={campaignName}
-            onChange={(e) => setCampaignName(e.target.value)}
-          />
+        <div className="space-y-6">
+          {/* Nom */}
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">
+              Nom de la campagne
+            </label>
+            <Input
+              placeholder="Ex: Lancement Été 2024"
+              value={campaignName}
+              onChange={(e) => setCampaignName(e.target.value)}
+            />
+          </div>
+
+          {/* Objectif */}
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-3">
+              <div className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-accent" />
+                Objectif de la campagne
+              </div>
+            </label>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {campaignObjectives.map((obj) => (
+                <button
+                  key={obj.value}
+                  type="button"
+                  onClick={() => setObjective(obj.value)}
+                  className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-all ${
+                    objective === obj.value
+                      ? 'border-accent bg-accent/5 text-accent'
+                      : 'border-border hover:border-foreground-secondary text-foreground-secondary hover:text-foreground'
+                  }`}
+                >
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                    objective === obj.value ? 'bg-accent/10' : 'bg-background-secondary'
+                  }`}>
+                    {objectiveIcons[obj.value]}
+                  </div>
+                  <span className="font-medium text-sm">{obj.label}</span>
+                  <span className="text-xs text-center opacity-70">{obj.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </Card>
 

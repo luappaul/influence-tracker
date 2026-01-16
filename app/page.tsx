@@ -840,60 +840,62 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center">
-              <TrendingUp className="w-6 h-6 text-accent" />
+      {/* KPIs - masqués quand une campagne est sélectionnée */}
+      {!selectedCampaign && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card>
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center">
+                <TrendingUp className="w-6 h-6 text-accent" />
+              </div>
+              <div>
+                <p className="text-sm text-foreground-secondary">Chiffre d'affaires</p>
+                <p className="text-2xl font-semibold text-foreground">
+                  {formatCurrency(stats.totalRevenue)}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm text-foreground-secondary">Chiffre d'affaires</p>
-              <p className="text-2xl font-semibold text-foreground">
-                {formatCurrency(stats.totalRevenue)}
-              </p>
-            </div>
-          </div>
-        </Card>
+          </Card>
 
-        <Card>
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-lg bg-success/10 flex items-center justify-center">
-              <ShoppingBag className="w-6 h-6 text-success" />
+          <Card>
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-lg bg-success/10 flex items-center justify-center">
+                <ShoppingBag className="w-6 h-6 text-success" />
+              </div>
+              <div>
+                <p className="text-sm text-foreground-secondary">Commandes</p>
+                <p className="text-2xl font-semibold text-foreground">{stats.totalOrders}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm text-foreground-secondary">Commandes</p>
-              <p className="text-2xl font-semibold text-foreground">{stats.totalOrders}</p>
-            </div>
-          </div>
-        </Card>
+          </Card>
 
-        <Card>
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-lg bg-info/10 flex items-center justify-center">
-              <Users className="w-6 h-6 text-info" />
+          <Card>
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-lg bg-info/10 flex items-center justify-center">
+                <Users className="w-6 h-6 text-info" />
+              </div>
+              <div>
+                <p className="text-sm text-foreground-secondary">Panier moyen</p>
+                <p className="text-2xl font-semibold text-foreground">
+                  {formatCurrency(stats.averageOrderValue)}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm text-foreground-secondary">Panier moyen</p>
-              <p className="text-2xl font-semibold text-foreground">
-                {formatCurrency(stats.averageOrderValue)}
-              </p>
-            </div>
-          </div>
-        </Card>
+          </Card>
 
-        <Card>
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-lg bg-warning/10 flex items-center justify-center">
-              <Package className="w-6 h-6 text-warning" />
+          <Card>
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-lg bg-warning/10 flex items-center justify-center">
+                <Package className="w-6 h-6 text-warning" />
+              </div>
+              <div>
+                <p className="text-sm text-foreground-secondary">Produits vendus</p>
+                <p className="text-2xl font-semibold text-foreground">{stats.totalProducts}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm text-foreground-secondary">Produits vendus</p>
-              <p className="text-2xl font-semibold text-foreground">{stats.totalProducts}</p>
-            </div>
-          </div>
-        </Card>
-      </div>
+          </Card>
+        </div>
+      )}
 
       {/* Graphique */}
       <Card>
