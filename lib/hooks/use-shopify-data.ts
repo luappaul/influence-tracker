@@ -285,6 +285,32 @@ export function useShopifyData(): UseShopifyDataReturn {
   const [error, setError] = useState<string | null>(null);
   const [isDemo, setIsDemo] = useState(false);
 
+  // Fetch Instagram follower data
+  const fetchInstagramData = async (): Promise<DailyMetrics[]> => {
+    try {
+      const response = await fetch('/api/instagram/insights');
+      if (!response.ok) {
+        console.log('Instagram insights not available');
+        return [];
+      }
+
+      const data = await response.json();
+      if (!data.connected || !data.dailyFollowers) {
+        return [];
+      }
+
+      // Convert Instagram data to DailyMetrics format
+      return data.dailyFollowers.map((d: { date: string; followers: number }) => ({
+        date: d.date,
+        followers: d.followers,
+        visitors: 0, // Will be filled by Shopify later
+      }));
+    } catch (err) {
+      console.log('Error fetching Instagram data:', err);
+      return [];
+    }
+  };
+
   const fetchData = async () => {
     setIsLoading(true);
     setError(null);
@@ -304,11 +330,19 @@ export function useShopifyData(): UseShopifyDataReturn {
       return;
     }
 
-    // Si l'utilisateur n'a pas Shopify configuré, retourner des données vides
+    // Pour les utilisateurs réels, toujours essayer de récupérer les données Instagram
+    const instagramMetrics = await fetchInstagramData();
+
+    // Si l'utilisateur n'a pas Shopify configuré
     if (!hasShopifyConfigured()) {
       setOrders([]);
       setProducts([]);
-      setDailyMetrics([]);
+      // Utiliser les métriques Instagram si disponibles
+      if (instagramMetrics.length > 0) {
+        setDailyMetrics(instagramMetrics);
+      } else {
+        setDailyMetrics([]);
+      }
       setIsDemo(false);
       setIsLoading(false);
       return;
@@ -326,6 +360,10 @@ export function useShopifyData(): UseShopifyDataReturn {
         setError('Erreur de connexion à Shopify');
         setOrders([]);
         setProducts([]);
+        // Utiliser quand même les données Instagram si disponibles
+        if (instagramMetrics.length > 0) {
+          setDailyMetrics(instagramMetrics);
+        }
         return;
       }
 
@@ -334,11 +372,21 @@ export function useShopifyData(): UseShopifyDataReturn {
 
       setOrders(ordersData.orders || []);
       setProducts(productsData.products || []);
+
+      // Merge Instagram metrics with any Shopify visitor data
+      // For now, just use Instagram followers data
+      if (instagramMetrics.length > 0) {
+        setDailyMetrics(instagramMetrics);
+      }
     } catch (err) {
       console.log('Error fetching Shopify data:', err);
       setError('Erreur de connexion à Shopify');
       setOrders([]);
       setProducts([]);
+      // Utiliser quand même les données Instagram si disponibles
+      if (instagramMetrics.length > 0) {
+        setDailyMetrics(instagramMetrics);
+      }
     } finally {
       setIsLoading(false);
     }
