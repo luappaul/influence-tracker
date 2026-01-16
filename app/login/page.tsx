@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 function LoginForm() {
-  const { login, loginWithShopify, isLoading, error: authError, setError: setAuthError } = useAuth();
+  const { login, loginWithShopify, loginAsDemo, isLoading, error: authError, setError: setAuthError } = useAuth();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -17,6 +17,7 @@ function LoginForm() {
   const [isShopifyLoading, setIsShopifyLoading] = useState(false);
   const [isEmailLoading, setIsEmailLoading] = useState(false);
   const [showShopifyForm, setShowShopifyForm] = useState(false);
+  const [isDemoLoading, setIsDemoLoading] = useState(false);
 
   // Gérer les erreurs OAuth dans l'URL
   useEffect(() => {
@@ -67,6 +68,16 @@ function LoginForm() {
     } catch (err) {
       setError('Erreur de connexion avec Shopify');
       setIsShopifyLoading(false);
+    }
+  };
+
+  const handleDemoLogin = async () => {
+    try {
+      setIsDemoLoading(true);
+      await loginAsDemo();
+    } catch (err) {
+      setError('Erreur de connexion');
+      setIsDemoLoading(false);
     }
   };
 
@@ -197,6 +208,24 @@ function LoginForm() {
               </div>
             </form>
           )}
+
+          {/* Bouton Mode Démo */}
+          <button
+            onClick={handleDemoLogin}
+            disabled={isDemoLoading || isShopifyLoading || isEmailLoading}
+            className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-accent text-white rounded-lg font-medium hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isDemoLoading ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Sparkles className="w-5 h-5" />
+            )}
+            {isDemoLoading ? 'Connexion...' : 'Accéder à la démo'}
+          </button>
+
+          <p className="text-xs text-foreground-secondary text-center">
+            Shopify pré-configuré avec votre boutique test
+          </p>
 
           {/* Séparateur */}
           <div className="relative">

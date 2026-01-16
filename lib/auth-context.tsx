@@ -17,6 +17,7 @@ interface AuthContextValue {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   loginWithShopify: (shop: string) => Promise<void>;
+  loginAsDemo: () => Promise<void>;
   logout: () => void;
   error: string | null;
   setError: (error: string | null) => void;
@@ -87,15 +88,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Simulation d'une requête API
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Mock user
+    // Mock user - Shopify est configuré via env vars côté serveur
     const mockUser: User = {
       id: 'user-1',
       email,
       name: email.split('@')[0],
+      // Note: Shopify access se fait via env vars côté serveur
     };
 
     setUser(mockUser);
     localStorage.setItem('influence-tracker-user', JSON.stringify(mockUser));
+    setIsLoading(false);
+    router.push('/');
+  };
+
+  const loginAsDemo = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const demoUser: User = {
+      id: 'demo-user',
+      email: 'demo@influence-tracker.com',
+      name: 'Utilisateur Démo',
+      // Shopify est pré-configuré via variables d'environnement
+    };
+
+    setUser(demoUser);
+    localStorage.setItem('influence-tracker-user', JSON.stringify(demoUser));
     setIsLoading(false);
     router.push('/');
   };
@@ -137,7 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, loginWithShopify, logout, error, setError }}>
+    <AuthContext.Provider value={{ user, isLoading, login, loginWithShopify, loginAsDemo, logout, error, setError }}>
       {children}
     </AuthContext.Provider>
   );
