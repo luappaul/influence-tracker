@@ -53,6 +53,13 @@ import {
 type DateRange = 'this_month' | 'last_month' | 'this_year' | 'last_30_days' | 'last_7_days';
 type ChartMetric = 'sales' | 'followers' | 'visitors';
 
+// Couleurs par métrique
+const metricColors: Record<ChartMetric, { main: string; light: string; negative: string }> = {
+  sales: { main: '#10B981', light: '#10B98133', negative: '#EF444433' },      // emerald-500
+  followers: { main: '#3B82F6', light: '#3B82F633', negative: '#EF444433' },  // blue-500
+  visitors: { main: '#8B5CF6', light: '#8B5CF633', negative: '#EF444433' },   // purple-500
+};
+
 interface PostCommenter {
   username: string;
   fullName: string;
@@ -567,13 +574,31 @@ export default function Dashboard() {
 
     return Object.values(grouped)
       .sort((a, b) => a.date.localeCompare(b.date))
-      .map((item) => ({
-        ...item,
-        dateLabel: new Date(item.date).toLocaleDateString('fr-FR', {
-          day: 'numeric',
-          month: 'short',
-        }),
-      }));
+      .map((item) => {
+        // Calculer les valeurs au-dessus et en-dessous de la baseline
+        const salesBaseline = item.baseline || baselineData?.dailyAverage || 0;
+        const followersBaseline = baselineData?.dailyFollowers || 0;
+        const visitorsBaseline = baselineData?.dailyVisitors || 0;
+
+        return {
+          ...item,
+          dateLabel: new Date(item.date).toLocaleDateString('fr-FR', {
+            day: 'numeric',
+            month: 'short',
+          }),
+          // Valeurs pour les zones au-dessus/en-dessous de la baseline
+          salesAbove: item.inCampaign && item.revenue > salesBaseline ? item.revenue : salesBaseline,
+          salesBelow: item.inCampaign && item.revenue < salesBaseline ? item.revenue : salesBaseline,
+          followersAbove: item.inCampaign && item.followers > followersBaseline ? item.followers : followersBaseline,
+          followersBelow: item.inCampaign && item.followers < followersBaseline ? item.followers : followersBaseline,
+          visitorsAbove: item.inCampaign && item.visitors > visitorsBaseline ? item.visitors : visitorsBaseline,
+          visitorsBelow: item.inCampaign && item.visitors < visitorsBaseline ? item.visitors : visitorsBaseline,
+          // Baselines pour le remplissage
+          salesBaseline: item.inCampaign ? salesBaseline : null,
+          followersBaseline: item.inCampaign ? followersBaseline : null,
+          visitorsBaseline: item.inCampaign ? visitorsBaseline : null,
+        };
+      });
   }, [filteredOrders, dailyMetrics, campaignPeriod, selectedCampaign, baselineData]);
 
   // Trouver les index de début et fin de campagne pour le graphique
@@ -1018,14 +1043,14 @@ export default function Dashboard() {
       <Card>
         <div className="flex items-center justify-between mb-6">
           <div>
-            {/* Onglets de sélection de métrique */}
+            {/* Onglets de sélection de métrique avec couleurs distinctes */}
             <div className="flex items-center gap-1 mb-2">
               <button
                 onClick={() => setChartMetric('sales')}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   chartMetric === 'sales'
-                    ? 'bg-accent text-white'
-                    : 'text-foreground-secondary hover:bg-background-secondary'
+                    ? 'bg-emerald-500 text-white'
+                    : 'text-foreground-secondary hover:bg-background-secondary hover:text-emerald-600'
                 }`}
               >
                 <TrendingUp className="w-4 h-4 inline mr-1.5" />
@@ -1035,8 +1060,8 @@ export default function Dashboard() {
                 onClick={() => setChartMetric('followers')}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   chartMetric === 'followers'
-                    ? 'bg-accent text-white'
-                    : 'text-foreground-secondary hover:bg-background-secondary'
+                    ? 'bg-blue-500 text-white'
+                    : 'text-foreground-secondary hover:bg-background-secondary hover:text-blue-600'
                 }`}
               >
                 <Users className="w-4 h-4 inline mr-1.5" />
@@ -1046,8 +1071,8 @@ export default function Dashboard() {
                 onClick={() => setChartMetric('visitors')}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   chartMetric === 'visitors'
-                    ? 'bg-accent text-white'
-                    : 'text-foreground-secondary hover:bg-background-secondary'
+                    ? 'bg-purple-500 text-white'
+                    : 'text-foreground-secondary hover:bg-background-secondary hover:text-purple-600'
                 }`}
               >
                 <BarChart3 className="w-4 h-4 inline mr-1.5" />
@@ -1056,7 +1081,7 @@ export default function Dashboard() {
             </div>
             {selectedCampaign && campaignPeriod && (
               <p className="text-sm text-foreground-secondary">
-                Période campagne surlignée en orange
+                Zone colorée = au-dessus de la baseline, zone rouge = en-dessous
               </p>
             )}
           </div>
@@ -1174,16 +1199,42 @@ export default function Dashboard() {
                   />
                 )}
 
-                {/* Area entre baseline et revenue (impact) - seulement pour les ventes */}
-                {selectedCampaign && chartType === 'line' && chartMetric === 'sales' && (
-                  <Area
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="revenue"
-                    fill="#10B981"
-                    fillOpacity={0.2}
-                    stroke="none"
-                  />
+                {/* Areas pour visualiser au-dessus et en-dessous de la baseline */}
+                {selectedCampaign && chartType === 'line' && (
+                  <>
+                    {/* Zone au-dessus de la baseline (couleur positive) */}
+                    <Area
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey={
+                        chartMetric === 'sales' ? 'salesAbove' :
+                        chartMetric === 'followers' ? 'followersAbove' : 'visitorsAbove'
+                      }
+                      fill={metricColors[chartMetric].light}
+                      stroke="none"
+                      baseValue={
+                        chartMetric === 'sales' ? baselineData?.dailyAverage || 0 :
+                        chartMetric === 'followers' ? baselineData?.dailyFollowers || 0 :
+                        baselineData?.dailyVisitors || 0
+                      }
+                    />
+                    {/* Zone en-dessous de la baseline (couleur négative) */}
+                    <Area
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey={
+                        chartMetric === 'sales' ? 'salesBelow' :
+                        chartMetric === 'followers' ? 'followersBelow' : 'visitorsBelow'
+                      }
+                      fill={metricColors[chartMetric].negative}
+                      stroke="none"
+                      baseValue={
+                        chartMetric === 'sales' ? baselineData?.dailyAverage || 0 :
+                        chartMetric === 'followers' ? baselineData?.dailyFollowers || 0 :
+                        baselineData?.dailyVisitors || 0
+                      }
+                    />
+                  </>
                 )}
 
                 {/* Barres ou Ligne pour la métrique sélectionnée */}
@@ -1193,19 +1244,31 @@ export default function Dashboard() {
                     dataKey={chartMetric === 'sales' ? 'revenue' : chartMetric === 'followers' ? 'followers' : 'visitors'}
                     radius={[4, 4, 0, 0]}
                   >
-                    {chartData.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={entry.inCampaign ? '#D97706' : '#9CA3AF'}
-                      />
-                    ))}
+                    {chartData.map((entry, index) => {
+                      // Déterminer la couleur en fonction de la baseline
+                      const baseline = chartMetric === 'sales' ? baselineData?.dailyAverage || 0 :
+                        chartMetric === 'followers' ? baselineData?.dailyFollowers || 0 :
+                        baselineData?.dailyVisitors || 0;
+                      const value = chartMetric === 'sales' ? entry.revenue :
+                        chartMetric === 'followers' ? entry.followers : entry.visitors;
+                      const isAboveBaseline = value >= baseline;
+
+                      return (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={entry.inCampaign
+                            ? (isAboveBaseline ? metricColors[chartMetric].main : '#EF4444')
+                            : '#9CA3AF'}
+                        />
+                      );
+                    })}
                   </Bar>
                 ) : (
                   <Line
                     yAxisId="left"
                     type="monotone"
                     dataKey={chartMetric === 'sales' ? 'revenue' : chartMetric === 'followers' ? 'followers' : 'visitors'}
-                    stroke="#D97706"
+                    stroke={metricColors[chartMetric].main}
                     strokeWidth={2}
                     dot={(props: any) => {
                       const { cx, cy, payload, index } = props;
@@ -1213,7 +1276,7 @@ export default function Dashboard() {
                         // Afficher la photo de l'influenceur
                         return (
                           <g key={`marker-${payload.date}`}>
-                            <circle cx={cx} cy={cy} r={16} fill="white" stroke="#D97706" strokeWidth={2} />
+                            <circle cx={cx} cy={cy} r={16} fill="white" stroke={metricColors[chartMetric].main} strokeWidth={2} />
                             <clipPath id={`clip-${payload.date}`}>
                               <circle cx={cx} cy={cy} r={14} />
                             </clipPath>
@@ -1232,13 +1295,24 @@ export default function Dashboard() {
                           </g>
                         );
                       }
+
+                      // Couleur du point selon baseline
+                      const baseline = chartMetric === 'sales' ? baselineData?.dailyAverage || 0 :
+                        chartMetric === 'followers' ? baselineData?.dailyFollowers || 0 :
+                        baselineData?.dailyVisitors || 0;
+                      const value = chartMetric === 'sales' ? payload?.revenue :
+                        chartMetric === 'followers' ? payload?.followers : payload?.visitors;
+                      const isAboveBaseline = value >= baseline;
+
                       return (
                         <circle
                           key={`dot-${payload?.date || index}`}
                           cx={cx}
                           cy={cy}
                           r={4}
-                          fill={payload?.inCampaign ? '#D97706' : '#9CA3AF'}
+                          fill={payload?.inCampaign
+                            ? (isAboveBaseline ? metricColors[chartMetric].main : '#EF4444')
+                            : '#9CA3AF'}
                         />
                       );
                     }}
@@ -1257,16 +1331,20 @@ export default function Dashboard() {
         {/* Légende */}
         <div className="flex items-center justify-center gap-6 mt-4 text-sm flex-wrap">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-[#D97706]" />
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: metricColors[chartMetric].main }} />
             <span className="text-foreground-secondary">
-              {chartMetric === 'sales' ? 'CA' : chartMetric === 'followers' ? 'Followers' : 'Visiteurs'} (période campagne)
+              {chartMetric === 'sales' ? 'CA' : chartMetric === 'followers' ? 'Followers' : 'Visiteurs'} (au-dessus baseline)
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-[#EF4444]" />
+            <span className="text-foreground-secondary">
+              {chartMetric === 'sales' ? 'CA' : chartMetric === 'followers' ? 'Followers' : 'Visiteurs'} (en-dessous baseline)
             </span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-[#9CA3AF]" />
-            <span className="text-foreground-secondary">
-              {chartMetric === 'sales' ? 'CA' : chartMetric === 'followers' ? 'Followers' : 'Visiteurs'} (hors campagne)
-            </span>
+            <span className="text-foreground-secondary">Hors campagne</span>
           </div>
           {selectedCampaign && (
             <>
@@ -1275,7 +1353,7 @@ export default function Dashboard() {
                 <span className="text-foreground-secondary">Baseline</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-5 h-5 rounded-full border-2 border-[#D97706] bg-white" />
+                <div className="w-5 h-5 rounded-full border-2 bg-white" style={{ borderColor: metricColors[chartMetric].main }} />
                 <span className="text-foreground-secondary">Post influenceur</span>
               </div>
             </>
