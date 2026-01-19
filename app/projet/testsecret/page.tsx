@@ -156,7 +156,7 @@ function LayerBreakdown({ result }: { result: FullAttributionResult }) {
             <XAxis type="number" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k€`} />
             <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 11 }} />
             <Tooltip
-              formatter={(value: number) => formatCurrency(value)}
+              formatter={(value) => formatCurrency(value as number)}
               contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px' }}
             />
             <Bar dataKey="value" radius={[0, 4, 4, 0]}>
@@ -272,7 +272,7 @@ function HourlyAnalysis({ scenario, result }: ScenarioResultProps) {
             <XAxis dataKey="hour" tick={{ fontSize: 10 }} interval={2} />
             <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`} />
             <Tooltip
-              formatter={(value: number) => formatCurrency(value)}
+              formatter={(value) => formatCurrency(value as number)}
               contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px' }}
             />
             <Legend />
@@ -351,14 +351,14 @@ function InfluencerAttribution({ result }: { result: FullAttributionResult }) {
                 innerRadius={40}
                 outerRadius={70}
                 dataKey="value"
-                label={({ name, value }) => `${name.split('_')[0]} ${value.toFixed(0)}%`}
+                label={({ name, value }) => `${(name as string)?.split('_')[0] || ''} ${(value as number)?.toFixed(0) || 0}%`}
                 labelLine={false}
               >
                 {pieData.map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(value: number) => `${value.toFixed(1)}%`} />
+              <Tooltip formatter={(value) => `${(value as number).toFixed(1)}%`} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -537,9 +537,9 @@ function SummaryDashboard({ results }: { results: { scenario: TestScenario; resu
             <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tickFormatter={(v) => `${v}`} />
             <Tooltip
               contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px' }}
-              formatter={(value: number, name: string) => {
+              formatter={(value, name) => {
                 if (name === 'Confiance') return [`${value}`, name];
-                return [formatCurrency(value), name];
+                return [formatCurrency(value as number), name];
               }}
             />
             <Legend />
