@@ -354,13 +354,8 @@ export default function Dashboard() {
       variation,
       followersVariation,
       visitorsVariation,
-      roi: selectedCampaign?.totalBudget && incrementalRevenue > 0
-        ? ((incrementalRevenue - selectedCampaign.totalBudget) / selectedCampaign.totalBudget) * 100
-        : selectedCampaign?.totalBudget
-        ? -100
-        : 0,
     };
-  }, [campaignPeriod, orders, dailyMetrics, selectedCampaign, baselineData]);
+  }, [campaignPeriod, orders, dailyMetrics, baselineData]);
 
   // Attribution intelligente
   const attributionResult = useMemo((): AttributionResult | null => {
@@ -869,21 +864,26 @@ export default function Dashboard() {
                 } × {campaignStats.campaignDays}j
               </p>
             </div>
-            {/* Impact incrémental */}
+            {/* Impact attribué */}
             <div>
               <p className="text-sm text-foreground-secondary">Impact campagne</p>
-              <p className={`text-xl font-semibold ${
-                (chartMetric === 'sales' ? campaignStats.incrementalRevenue : chartMetric === 'followers' ? campaignStats.incrementalFollowers : campaignStats.incrementalVisitors) > 0
-                  ? 'text-success'
-                  : 'text-foreground-secondary'
-              }`}>
-                +{chartMetric === 'sales'
-                  ? formatCurrency(campaignStats.incrementalRevenue)
-                  : formatNumber(Math.round(chartMetric === 'followers' ? campaignStats.incrementalFollowers : campaignStats.incrementalVisitors))
-                }
-              </p>
+              {(() => {
+                const attributedRevenue = attributionResult?.totalAttributedRevenue || 0;
+                return (
+                  <p className={`text-xl font-semibold ${
+                    (chartMetric === 'sales' ? attributedRevenue : chartMetric === 'followers' ? campaignStats.incrementalFollowers : campaignStats.incrementalVisitors) > 0
+                      ? 'text-success'
+                      : 'text-foreground-secondary'
+                  }`}>
+                    +{chartMetric === 'sales'
+                      ? formatCurrency(attributedRevenue)
+                      : formatNumber(Math.round(chartMetric === 'followers' ? campaignStats.incrementalFollowers : campaignStats.incrementalVisitors))
+                    }
+                  </p>
+                );
+              })()}
               <p className="text-xs text-foreground-secondary">
-                {chartMetric === 'sales' ? 'CA additionnel' : chartMetric === 'followers' ? 'Followers additionnels' : 'Visiteurs additionnels'}
+                {chartMetric === 'sales' ? 'CA attribué' : chartMetric === 'followers' ? 'Followers additionnels' : 'Visiteurs additionnels'}
               </p>
             </div>
             {/* Variation vs baseline */}
@@ -909,17 +909,24 @@ export default function Dashboard() {
                 );
               })()}
             </div>
-            {/* ROI (seulement pour les ventes) */}
+            {/* ROI basé sur l'attribution */}
             <div>
               <p className="text-sm text-foreground-secondary">ROI</p>
-              <p className={`text-xl font-semibold ${
-                campaignStats.roi >= 0 ? 'text-success' : 'text-danger'
-              }`}>
-                {campaignStats.roi >= 0 ? '+' : ''}{campaignStats.roi.toFixed(0)}%
-              </p>
-              <p className="text-xs text-foreground-secondary">
-                Budget: {formatCurrency(selectedCampaign.totalBudget)}
-              </p>
+              {(() => {
+                const attributedRevenue = attributionResult?.totalAttributedRevenue || 0;
+                const budget = selectedCampaign.totalBudget || 0;
+                const roi = budget > 0 ? ((attributedRevenue - budget) / budget) * 100 : 0;
+                return (
+                  <>
+                    <p className={`text-xl font-semibold ${roi >= 0 ? 'text-success' : 'text-danger'}`}>
+                      {roi >= 0 ? '+' : ''}{roi.toFixed(0)}%
+                    </p>
+                    <p className="text-xs text-foreground-secondary">
+                      Budget: {formatCurrency(budget)}
+                    </p>
+                  </>
+                );
+              })()}
             </div>
           </div>
 
