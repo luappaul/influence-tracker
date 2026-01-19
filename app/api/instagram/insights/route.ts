@@ -1,24 +1,5 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { cookies } from 'next/headers';
-
-interface InsightValue {
-  value: number;
-  end_time: string;
-}
-
-interface InsightData {
-  name: string;
-  period: string;
-  values: InsightValue[];
-  title: string;
-  description: string;
-  id: string;
-}
-
-interface InstagramInsightsResponse {
-  data: InsightData[];
-}
 
 interface InstagramUserResponse {
   id: string;
@@ -31,13 +12,16 @@ export async function GET(request: Request) {
   try {
     let accessToken: string | null = null;
     let instagramUserId: string | null = null;
+    let userId: string | null = null;
+
+    const supabase = await createClient();
 
     // Try to get Instagram token from Supabase first
     try {
-      const supabase = await createClient();
       const { data: { user } } = await supabase.auth.getUser();
 
       if (user) {
+        userId = user.id;
         const { data: profile } = await supabase
           .from('profiles')
           .select('instagram_access_token, instagram_user_id')
@@ -63,11 +47,11 @@ export async function GET(request: Request) {
     if (!accessToken) {
       return NextResponse.json(
         { error: 'Instagram not connected', connected: false },
-        { status: 200 } // Return 200 with connected: false instead of error
+        { status: 200 }
       );
     }
 
-    // First, get current user info (including current followers count)
+    // Get current user info from Instagram
     const userResponse = await fetch(
       `https://graph.instagram.com/v21.0/me?fields=id,username,followers_count,media_count&access_token=${accessToken}`
     );
@@ -83,43 +67,44 @@ export async function GET(request: Request) {
 
     const userData: InstagramUserResponse = await userResponse.json();
 
-    // Try to get follower insights (requires instagram_business_manage_insights)
-    // This gives us follower_count over time
+    // Get historical data from our database (last 30 days)
     let dailyFollowers: Array<{ date: string; followers: number }> = [];
 
-    try {
-      // Get follower count insights for the last 30 days
-      const insightsResponse = await fetch(
-        `https://graph.instagram.com/v21.0/${instagramUserId}/insights?metric=follower_count&period=day&access_token=${accessToken}`
-      );
+    if (userId) {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      if (insightsResponse.ok) {
-        const insightsData: InstagramInsightsResponse = await insightsResponse.json();
+      const { data: metrics } = await supabase
+        .from('instagram_metrics')
+        .select('followers_count, recorded_at')
+        .eq('user_id', userId)
+        .gte('recorded_at', thirtyDaysAgo.toISOString())
+        .order('recorded_at', { ascending: true });
 
-        if (insightsData.data && insightsData.data.length > 0) {
-          const followerInsight = insightsData.data.find(d => d.name === 'follower_count');
+      if (metrics && metrics.length > 0) {
+        // Group by day (take latest value per day)
+        const byDay: Record<string, number> = {};
+        metrics.forEach((m: { followers_count: number; recorded_at: string }) => {
+          const date = m.recorded_at.split('T')[0];
+          byDay[date] = m.followers_count;
+        });
 
-          if (followerInsight && followerInsight.values) {
-            dailyFollowers = followerInsight.values.map(v => ({
-              date: v.end_time.split('T')[0],
-              followers: v.value,
-            }));
-          }
-        }
-      } else {
-        // Insights API might not be available for all accounts
-        // Generate estimated data based on current follower count
-        console.log('Insights API not available, using current count only');
+        dailyFollowers = Object.entries(byDay).map(([date, followers]) => ({
+          date,
+          followers,
+        }));
       }
-    } catch (insightError) {
-      console.log('Could not fetch insights, using current count:', insightError);
     }
 
-    // If we don't have daily data, create a simple response with just current count
-    if (dailyFollowers.length === 0) {
-      const today = new Date().toISOString().split('T')[0];
-      dailyFollowers = [{ date: today, followers: userData.followers_count }];
+    // Add today's current count if not already present
+    const today = new Date().toISOString().split('T')[0];
+    const hasToday = dailyFollowers.some(d => d.date === today);
+    if (!hasToday) {
+      dailyFollowers.push({ date: today, followers: userData.followers_count });
     }
+
+    // Sort by date
+    dailyFollowers.sort((a, b) => a.date.localeCompare(b.date));
 
     return NextResponse.json({
       connected: true,
