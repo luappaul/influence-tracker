@@ -143,12 +143,10 @@ export default function NewCampaignPage() {
 
     // Sauvegarder dans la base d'influenceurs
     saveInfluencer({
-      id: newInfluencer.id,
       username: newInfluencer.username,
       fullName: newInfluencer.fullName,
       profilePicUrl: newInfluencer.profilePicUrl,
       followersCount: newInfluencer.followersCount,
-      addedAt: new Date().toISOString(),
       lastUsedAt: new Date().toISOString(),
     });
 
