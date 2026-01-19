@@ -137,7 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(parsedUser);
 
           // For non-demo users, try to refresh from Supabase in background
-          if (parsedUser.id !== 'demo-user' && isSupabaseConfigured()) {
+          if (parsedUser.email !== 'demo@datafluence.app' && isSupabaseConfigured()) {
             const supabase = createClient();
             supabase.auth.getSession().then(async ({ data: { session } }) => {
               if (session?.user) {
@@ -228,7 +228,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Rediriger vers onboarding si non complété (sauf si déjà sur onboarding ou page publique)
-      if (user && !user.onboardingCompleted && !isOnboardingPath && !isPublicPath && user.id !== 'demo-user') {
+      if (user && !user.onboardingCompleted && !isOnboardingPath && !isPublicPath && user.email !== 'demo@datafluence.app') {
         router.replace('/onboarding');
       }
     };
@@ -336,23 +336,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Connexion mode démo
+  // Connexion mode démo (vrai compte Supabase partagé)
   const loginAsDemo = async () => {
     setIsLoading(true);
     setError(null);
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const DEMO_EMAIL = 'demo@datafluence.app';
+    const DEMO_PASSWORD = 'demo123456';
 
-    const demoUser: User = {
-      id: 'demo-user',
-      email: 'demo@influence-tracker.com',
-      name: 'Utilisateur Démo',
-    };
+    try {
+      const supabase = createClient();
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: DEMO_EMAIL,
+        password: DEMO_PASSWORD,
+      });
 
-    setUser(demoUser);
-    localStorage.setItem('influence-tracker-user', JSON.stringify(demoUser));
-    setIsLoading(false);
-    router.push('/');
+      if (signInError) {
+        throw new Error(signInError.message);
+      }
+
+      if (data.user) {
+        const userProfile = await loadUserProfile(data.user);
+        setUser(userProfile);
+        localStorage.setItem('influence-tracker-user', JSON.stringify(userProfile));
+        router.push('/');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erreur de connexion démo';
+      setError(translateSupabaseError(message));
+      console.error('Demo login error:', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Connexion Shopify OAuth
@@ -441,7 +456,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(updatedUser);
 
     // Si Supabase est configuré, mettre à jour le profil
-    if (isSupabaseConfigured() && updatedUser.id !== 'demo-user') {
+    if (isSupabaseConfigured() && updatedUser.email !== 'demo@datafluence.app') {
       try {
         const supabase = createClient();
         const { error } = await supabase.from('profiles').upsert({

@@ -254,7 +254,7 @@ function isDemoUser(): boolean {
     const storedUser = localStorage.getItem('influence-tracker-user');
     if (storedUser) {
       const user = JSON.parse(storedUser);
-      return user.id === 'demo-user';
+      return user.email === 'demo@datafluence.app';
     }
   } catch (e) {
     console.error('Error checking demo user:', e);

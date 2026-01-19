@@ -126,9 +126,14 @@ export default function CampaignDetailPage() {
     setIsLoading(false);
   }, [campaignId, campaigns, isCampaignsLoading]);
 
-  const saveCampaign = (updatedCampaign: Campaign) => {
-    updateCampaign(campaignId, updatedCampaign);
+  const saveCampaign = async (updatedCampaign: Campaign) => {
+    // Update local state immediately for responsive UI
     setCampaign(updatedCampaign);
+    // Save to Supabase in background
+    const success = await updateCampaign(campaignId, updatedCampaign);
+    if (!success) {
+      console.error('Failed to save campaign to Supabase');
+    }
   };
 
   const handleSaveName = () => {
@@ -377,11 +382,15 @@ export default function CampaignDetailPage() {
     });
   };
 
-  const handleDeleteCampaign = () => {
+  const handleDeleteCampaign = async () => {
     if (!confirm('Êtes-vous sûr de vouloir supprimer cette campagne ?')) return;
 
-    deleteCampaignFromStorage(campaignId);
-    router.push('/campaigns');
+    const success = await deleteCampaignFromStorage(campaignId);
+    if (success) {
+      router.push('/campaigns');
+    } else {
+      alert('Erreur lors de la suppression de la campagne');
+    }
   };
 
   const formatNumber = (num: number): string => {

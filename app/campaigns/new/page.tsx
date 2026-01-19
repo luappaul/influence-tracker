@@ -208,12 +208,10 @@ export default function NewCampaignPage() {
     setIsSaving(true);
     setShowConfirmModal(false);
 
-    const newCampaign = {
-      id: `camp-${Date.now()}`,
+    const campaignData = {
       name: campaignName,
       objective: objective,
-      status: 'active',
-      locked: true, // La campagne est verrouillée après création
+      status: 'active' as const,
       influencers: influencers.map((i) => ({
         ...i,
         collabToken: generateToken(), // Token unique pour le lien de collaboration
@@ -223,14 +221,16 @@ export default function NewCampaignPage() {
         instagramConnected: false,
       })),
       totalBudget,
-      createdAt: new Date().toISOString(),
     };
 
-    addCampaign(newCampaign);
+    const newCampaign = await addCampaign(campaignData);
 
-    setTimeout(() => {
+    if (newCampaign) {
       router.push(`/campaigns/${newCampaign.id}`);
-    }, 500);
+    } else {
+      alert('Erreur lors de la création de la campagne');
+      setIsSaving(false);
+    }
   };
 
   const formatNumber = (num: number): string => {
