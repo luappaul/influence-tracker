@@ -21,7 +21,8 @@ export function AppLayout({ children }: AppLayoutProps) {
     pathname === '/onboarding' ||
     pathname === '/privacy' ||
     pathname === '/terms' ||
-    pathname.startsWith('/collab/');
+    pathname.startsWith('/collab/') ||
+    pathname.startsWith('/projet/');
 
   if (isPublicPage) {
     return <>{children}</>;
