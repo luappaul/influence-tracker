@@ -687,23 +687,23 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {/* Header avec filtres */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">
+          <h1 className="text-xl sm:text-2xl font-semibold text-foreground">
             Bonjour{user?.name ? `, ${user.name}` : ''}
           </h1>
-          <p className="text-foreground-secondary">
+          <p className="text-sm sm:text-base text-foreground-secondary">
             Aperçu de vos ventes
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
           {/* Campaign selector */}
           <div className="relative">
             <Button
               variant={selectedCampaign ? 'primary' : 'secondary'}
               onClick={() => setShowCampaignMenu(!showCampaignMenu)}
-              className="min-w-[180px] justify-between"
+              className="w-full sm:min-w-[180px] justify-between"
             >
               <Megaphone className="w-4 h-4 mr-2" />
               {selectedCampaign ? selectedCampaign.name : 'Sélectionner campagne'}
@@ -769,7 +769,7 @@ export default function Dashboard() {
             <Button
               variant="secondary"
               onClick={() => setShowDateMenu(!showDateMenu)}
-              className="min-w-[160px] justify-between"
+              className="w-full sm:min-w-[160px] justify-between"
             >
               <Calendar className="w-4 h-4 mr-2" />
               {dateRangeLabels[dateRange]}
@@ -826,7 +826,7 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
             {/* Valeur réelle */}
             <div>
               <p className="text-sm text-foreground-secondary">
@@ -1041,79 +1041,80 @@ export default function Dashboard() {
 
       {/* Graphique */}
       <Card>
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4 sm:mb-6">
           <div>
             {/* Onglets de sélection de métrique avec couleurs distinctes */}
-            <div className="flex items-center gap-1 mb-2">
+            <div className="flex flex-wrap items-center gap-1 mb-2">
               <button
                 onClick={() => setChartMetric('sales')}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors ${
                   chartMetric === 'sales'
                     ? 'bg-emerald-500 text-white'
                     : 'text-foreground-secondary hover:bg-background-secondary hover:text-emerald-600'
                 }`}
               >
-                <TrendingUp className="w-4 h-4 inline mr-1.5" />
+                <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 inline mr-1" />
                 Ventes
               </button>
               <button
                 onClick={() => setChartMetric('followers')}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors ${
                   chartMetric === 'followers'
                     ? 'bg-blue-500 text-white'
                     : 'text-foreground-secondary hover:bg-background-secondary hover:text-blue-600'
                 }`}
               >
-                <Users className="w-4 h-4 inline mr-1.5" />
+                <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 inline mr-1" />
                 Followers
               </button>
               <button
                 onClick={() => setChartMetric('visitors')}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors ${
                   chartMetric === 'visitors'
                     ? 'bg-purple-500 text-white'
                     : 'text-foreground-secondary hover:bg-background-secondary hover:text-purple-600'
                 }`}
               >
-                <BarChart3 className="w-4 h-4 inline mr-1.5" />
+                <BarChart3 className="w-3.5 h-3.5 sm:w-4 sm:h-4 inline mr-1" />
                 Visiteurs
               </button>
             </div>
             {selectedCampaign && campaignPeriod && (
-              <p className="text-sm text-foreground-secondary">
+              <p className="text-xs sm:text-sm text-foreground-secondary hidden sm:block">
                 Zone colorée = au-dessus de la baseline, zone rouge = en-dessous
               </p>
             )}
           </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Button
-                variant={chartType === 'bar' ? 'primary' : 'secondary'}
-                size="sm"
-                onClick={() => setChartType('bar')}
-              >
-                Barres
-              </Button>
-              <Button
-                variant={chartType === 'line' ? 'primary' : 'secondary'}
-                size="sm"
-                onClick={() => setChartType('line')}
-              >
-                Ligne
-              </Button>
-            </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={chartType === 'bar' ? 'primary' : 'secondary'}
+              size="sm"
+              onClick={() => setChartType('bar')}
+              className="text-xs sm:text-sm"
+            >
+              Barres
+            </Button>
+            <Button
+              variant={chartType === 'line' ? 'primary' : 'secondary'}
+              size="sm"
+              onClick={() => setChartType('line')}
+              className="text-xs sm:text-sm"
+            >
+              Ligne
+            </Button>
           </div>
         </div>
 
         {chartData.length > 0 ? (
-          <div className="h-[350px]">
+          <div className="h-[280px] sm:h-[320px] md:h-[350px]">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData} margin={{ top: 40, right: 30, left: 0, bottom: 0 }}>
+              <ComposedChart data={chartData} margin={{ top: 20, right: 10, left: -10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
-                <XAxis dataKey="dateLabel" tick={{ fontSize: 12 }} />
+                <XAxis dataKey="dateLabel" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                 <YAxis
                   yAxisId="left"
-                  tick={{ fontSize: 12 }}
+                  tick={{ fontSize: 10 }}
+                  width={45}
                   tickFormatter={(v) =>
                     chartMetric === 'sales' ? `${v}€` : formatNumber(v)
                   }
@@ -1329,34 +1330,30 @@ export default function Dashboard() {
         )}
 
         {/* Légende */}
-        <div className="flex items-center justify-center gap-6 mt-4 text-sm flex-wrap">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: metricColors[chartMetric].main }} />
+        <div className="flex items-center justify-center gap-3 sm:gap-6 mt-3 sm:mt-4 text-xs sm:text-sm flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full" style={{ backgroundColor: metricColors[chartMetric].main }} />
             <span className="text-foreground-secondary">
-              {chartMetric === 'sales' ? 'CA' : chartMetric === 'followers' ? 'Followers' : 'Visiteurs'} (au-dessus baseline)
+              <span className="hidden sm:inline">{chartMetric === 'sales' ? 'CA' : chartMetric === 'followers' ? 'Followers' : 'Visiteurs'} </span>
+              <span className="sm:hidden">+</span>Baseline
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-[#EF4444]" />
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#EF4444]" />
             <span className="text-foreground-secondary">
-              {chartMetric === 'sales' ? 'CA' : chartMetric === 'followers' ? 'Followers' : 'Visiteurs'} (en-dessous baseline)
+              <span className="hidden sm:inline">{chartMetric === 'sales' ? 'CA' : chartMetric === 'followers' ? 'Followers' : 'Visiteurs'} </span>
+              <span className="sm:hidden">-</span>Baseline
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-[#9CA3AF]" />
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#9CA3AF]" />
             <span className="text-foreground-secondary">Hors campagne</span>
           </div>
           {selectedCampaign && (
-            <>
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-0.5 bg-[#6B7280]" style={{ borderTop: '2px dashed #6B7280' }} />
-                <span className="text-foreground-secondary">Baseline</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-5 h-5 rounded-full border-2 bg-white" style={{ borderColor: metricColors[chartMetric].main }} />
-                <span className="text-foreground-secondary">Post influenceur</span>
-              </div>
-            </>
+            <div className="hidden sm:flex items-center gap-1.5">
+              <div className="w-5 h-5 rounded-full border-2 bg-white" style={{ borderColor: metricColors[chartMetric].main }} />
+              <span className="text-foreground-secondary">Post</span>
+            </div>
           )}
         </div>
       </Card>
@@ -1364,23 +1361,95 @@ export default function Dashboard() {
       {/* Tableau CRM des influenceurs quand une campagne est sélectionnée */}
       {selectedCampaign && influencerStats.length > 0 && (
         <Card>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
             <div>
-              <CardTitle>Performance par influenceur</CardTitle>
-              <p className="text-sm text-foreground-secondary mt-1">
+              <CardTitle className="text-base sm:text-lg">Performance par influenceur</CardTitle>
+              <p className="text-xs sm:text-sm text-foreground-secondary mt-1 hidden sm:block">
                 Attribution intelligente basée sur l'analyse des signaux
               </p>
             </div>
             <Link href={`/campaigns/${selectedCampaign.id}`}>
-              <Button variant="secondary" size="sm">
+              <Button variant="secondary" size="sm" className="w-full sm:w-auto">
                 Voir détails
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </Link>
           </div>
 
-          {/* Header du tableau */}
-          <div className="overflow-x-auto">
+          {/* Mobile: Cards */}
+          <div className="md:hidden space-y-3">
+            {influencerStats.map((inf) => (
+              <div key={inf.username} className="border border-border/50 rounded-lg p-3">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {inf.profilePicUrl ? (
+                      <img
+                        src={`/api/proxy-image?url=${encodeURIComponent(inf.profilePicUrl)}`}
+                        alt={inf.username}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-xs font-medium text-accent">
+                        {inf.username.slice(0, 2).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-foreground text-sm truncate">
+                      {inf.fullName || inf.username}
+                    </p>
+                    <p className="text-xs text-foreground-secondary">@{inf.username}</p>
+                  </div>
+                  <div className={`text-right ${inf.roi > 0 ? 'text-success' : inf.roi < 0 ? 'text-danger' : 'text-foreground-secondary'}`}>
+                    <p className="text-sm font-semibold flex items-center justify-end gap-0.5">
+                      {inf.roi > 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : inf.roi < 0 ? <ArrowDownRight className="w-3.5 h-3.5" /> : null}
+                      {inf.roi > 0 ? '+' : ''}{inf.roi.toFixed(0)}%
+                    </p>
+                    <p className="text-[10px] text-foreground-secondary">ROI</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <p className={`text-sm font-semibold ${inf.attributedRevenue > 0 ? 'text-success' : 'text-foreground'}`}>
+                      {formatCurrency(inf.attributedRevenue)}
+                    </p>
+                    <p className="text-[10px] text-foreground-secondary">CA attribué</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{inf.attributedSales}</p>
+                    <p className="text-[10px] text-foreground-secondary">Ventes</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{formatNumber(inf.likes + inf.comments)}</p>
+                    <p className="text-[10px] text-foreground-secondary">Engagement</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {/* Total mobile */}
+            <div className="bg-background-secondary/50 rounded-lg p-3">
+              <p className="font-medium text-foreground text-sm mb-2">Total</p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-sm font-semibold text-success">{formatCurrency(influencerTotals.attributedRevenue)}</p>
+                  <p className="text-[10px] text-foreground-secondary">CA</p>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-success">{influencerTotals.attributedSales}</p>
+                  <p className="text-[10px] text-foreground-secondary">Ventes</p>
+                </div>
+                <div>
+                  <p className={`text-sm font-semibold ${influencerTotals.attributedRevenue > influencerTotals.budget ? 'text-success' : 'text-danger'}`}>
+                    {influencerTotals.budget > 0 ? `${((influencerTotals.attributedRevenue - influencerTotals.budget) / influencerTotals.budget * 100).toFixed(0)}%` : '-'}
+                  </p>
+                  <p className="text-[10px] text-foreground-secondary">ROI</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Desktop: Table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border text-sm text-foreground-secondary">
@@ -1401,7 +1470,6 @@ export default function Dashboard() {
                     key={inf.username}
                     className="border-b border-border/50 hover:bg-background-secondary/50 transition-colors"
                   >
-                    {/* Influenceur */}
                     <td className="py-3 px-2">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center overflow-hidden flex-shrink-0">
@@ -1418,126 +1486,67 @@ export default function Dashboard() {
                           )}
                         </div>
                         <div className="min-w-0">
-                          <p className="font-medium text-foreground truncate">
-                            {inf.fullName || inf.username}
-                          </p>
-                          <p className="text-xs text-foreground-secondary">
-                            @{inf.username}
-                          </p>
+                          <p className="font-medium text-foreground truncate">{inf.fullName || inf.username}</p>
+                          <p className="text-xs text-foreground-secondary">@{inf.username}</p>
                         </div>
                       </div>
                     </td>
-
-                    {/* Posts */}
                     <td className="py-3 px-2 text-center">
-                      <span className="text-sm font-medium text-foreground">
-                        {inf.productPosts}
-                      </span>
-                      <span className="text-xs text-foreground-secondary">
-                        /{inf.totalPosts}
-                      </span>
+                      <span className="text-sm font-medium text-foreground">{inf.productPosts}</span>
+                      <span className="text-xs text-foreground-secondary">/{inf.totalPosts}</span>
                     </td>
-
-                    {/* Engagement */}
                     <td className="py-3 px-2 text-center">
                       <div className="flex flex-col items-center">
-                        <span className="text-sm text-foreground">
-                          {formatNumber(inf.likes + inf.comments)}
-                        </span>
-                        <span className="text-xs text-foreground-secondary">
-                          {formatNumber(inf.likes)} ❤️ {formatNumber(inf.comments)} 💬
-                        </span>
+                        <span className="text-sm text-foreground">{formatNumber(inf.likes + inf.comments)}</span>
+                        <span className="text-xs text-foreground-secondary">{formatNumber(inf.likes)} ❤️ {formatNumber(inf.comments)} 💬</span>
                       </div>
                     </td>
-
-                    {/* Ventes */}
                     <td className="py-3 px-2 text-center">
                       <div className="flex flex-col items-center">
-                        <span className={`text-sm font-medium ${inf.attributedSales > 0 ? 'text-success' : 'text-foreground-secondary'}`}>
-                          {inf.attributedSales}
-                        </span>
-                        <span className={`text-xs ${
-                          inf.confidence > 0.7 ? 'text-success' :
-                          inf.confidence > 0.4 ? 'text-warning' : 'text-foreground-secondary'
-                        }`}>
+                        <span className={`text-sm font-medium ${inf.attributedSales > 0 ? 'text-success' : 'text-foreground-secondary'}`}>{inf.attributedSales}</span>
+                        <span className={`text-xs ${inf.confidence > 0.7 ? 'text-success' : inf.confidence > 0.4 ? 'text-warning' : 'text-foreground-secondary'}`}>
                           {(inf.confidence * 100).toFixed(0)}% confiance
                         </span>
                       </div>
                     </td>
-
-                    {/* CA attribué */}
                     <td className="py-3 px-2 text-center">
                       <span className={`text-sm font-medium ${inf.attributedRevenue > 0 ? 'text-success' : 'text-foreground-secondary'}`}>
                         {formatCurrency(inf.attributedRevenue)}
                       </span>
                     </td>
-
-                    {/* Followers attribués */}
                     <td className="py-3 px-2 text-center">
                       <span className={`text-sm font-medium ${inf.attributedFollowers > 0 ? 'text-info' : 'text-foreground-secondary'}`}>
                         +{formatNumber(inf.attributedFollowers)}
                       </span>
                     </td>
-
-                    {/* Visiteurs attribués */}
                     <td className="py-3 px-2 text-center">
                       <span className={`text-sm font-medium ${inf.attributedVisitors > 0 ? 'text-accent' : 'text-foreground-secondary'}`}>
                         {formatNumber(inf.attributedVisitors)}
                       </span>
                     </td>
-
-                    {/* Budget */}
                     <td className="py-3 px-2 text-center">
-                      <span className="text-sm text-foreground">
-                        {formatCurrency(inf.budget)}
-                      </span>
+                      <span className="text-sm text-foreground">{formatCurrency(inf.budget)}</span>
                     </td>
-
-                    {/* ROI */}
                     <td className="py-3 px-2 text-center">
-                      <span className={`inline-flex items-center gap-1 text-sm font-semibold ${
-                        inf.roi > 0 ? 'text-success' : inf.roi < 0 ? 'text-danger' : 'text-foreground-secondary'
-                      }`}>
-                        {inf.roi > 0 ? (
-                          <ArrowUpRight className="w-4 h-4" />
-                        ) : inf.roi < 0 ? (
-                          <ArrowDownRight className="w-4 h-4" />
-                        ) : null}
+                      <span className={`inline-flex items-center gap-1 text-sm font-semibold ${inf.roi > 0 ? 'text-success' : inf.roi < 0 ? 'text-danger' : 'text-foreground-secondary'}`}>
+                        {inf.roi > 0 ? <ArrowUpRight className="w-4 h-4" /> : inf.roi < 0 ? <ArrowDownRight className="w-4 h-4" /> : null}
                         {inf.roi > 0 ? '+' : ''}{inf.roi.toFixed(0)}%
                       </span>
                     </td>
                   </tr>
                 ))}
-
-                {/* Totaux */}
                 <tr className="bg-background-secondary/50 font-medium">
                   <td className="py-3 px-2 text-foreground">Total</td>
-                  <td className="py-3 px-2 text-center text-foreground">
-                    {influencerStats.reduce((sum, i) => sum + i.productPosts, 0)}
-                  </td>
-                  <td className="py-3 px-2 text-center text-foreground">
-                    {formatNumber(influencerTotals.likes + influencerTotals.comments)}
-                  </td>
-                  <td className="py-3 px-2 text-center text-success font-semibold">
-                    {influencerTotals.attributedSales}
-                  </td>
-                  <td className="py-3 px-2 text-center text-success font-semibold">
-                    {formatCurrency(influencerTotals.attributedRevenue)}
-                  </td>
-                  <td className="py-3 px-2 text-center text-info font-semibold">
-                    +{formatNumber(influencerTotals.attributedFollowers)}
-                  </td>
-                  <td className="py-3 px-2 text-center text-accent font-semibold">
-                    {formatNumber(influencerTotals.attributedVisitors)}
-                  </td>
-                  <td className="py-3 px-2 text-center text-foreground">
-                    {formatCurrency(influencerTotals.budget)}
-                  </td>
+                  <td className="py-3 px-2 text-center text-foreground">{influencerStats.reduce((sum, i) => sum + i.productPosts, 0)}</td>
+                  <td className="py-3 px-2 text-center text-foreground">{formatNumber(influencerTotals.likes + influencerTotals.comments)}</td>
+                  <td className="py-3 px-2 text-center text-success font-semibold">{influencerTotals.attributedSales}</td>
+                  <td className="py-3 px-2 text-center text-success font-semibold">{formatCurrency(influencerTotals.attributedRevenue)}</td>
+                  <td className="py-3 px-2 text-center text-info font-semibold">+{formatNumber(influencerTotals.attributedFollowers)}</td>
+                  <td className="py-3 px-2 text-center text-accent font-semibold">{formatNumber(influencerTotals.attributedVisitors)}</td>
+                  <td className="py-3 px-2 text-center text-foreground">{formatCurrency(influencerTotals.budget)}</td>
                   <td className="py-3 px-2 text-center">
                     {influencerTotals.budget > 0 && (
-                      <span className={`font-semibold ${
-                        influencerTotals.attributedRevenue > influencerTotals.budget ? 'text-success' : 'text-danger'
-                      }`}>
+                      <span className={`font-semibold ${influencerTotals.attributedRevenue > influencerTotals.budget ? 'text-success' : 'text-danger'}`}>
                         {((influencerTotals.attributedRevenue - influencerTotals.budget) / influencerTotals.budget * 100).toFixed(0)}%
                       </span>
                     )}
@@ -1547,8 +1556,8 @@ export default function Dashboard() {
             </table>
           </div>
 
-          {/* Note explicative */}
-          <div className="mt-4 p-3 rounded-lg bg-info/5 border border-info/20">
+          {/* Note explicative - masquée sur mobile */}
+          <div className="hidden sm:block mt-4 p-3 rounded-lg bg-info/5 border border-info/20">
             <div className="flex items-start gap-2">
               <Info className="w-4 h-4 text-info mt-0.5 flex-shrink-0" />
               <div className="text-xs text-info">
@@ -1569,19 +1578,19 @@ export default function Dashboard() {
       {/* Accès aux campagnes */}
       <Link href="/campaigns">
         <Card className="bg-accent/5 border-accent/20 hover:bg-accent/10 transition-colors cursor-pointer">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center">
-                <BarChart3 className="w-6 h-6 text-accent" />
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
+                <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-accent" />
               </div>
-              <div>
-                <h3 className="font-semibold text-foreground">Campagnes d'influence</h3>
-                <p className="text-sm text-foreground-secondary">
-                  {campaigns.length} campagne{campaigns.length > 1 ? 's' : ''} · Gérez vos influenceurs et analysez l'impact
+              <div className="min-w-0">
+                <h3 className="font-semibold text-foreground text-sm sm:text-base">Campagnes d'influence</h3>
+                <p className="text-xs sm:text-sm text-foreground-secondary truncate">
+                  {campaigns.length} campagne{campaigns.length > 1 ? 's' : ''} <span className="hidden sm:inline">· Gérez vos influenceurs</span>
                 </p>
               </div>
             </div>
-            <ArrowRight className="w-5 h-5 text-accent" />
+            <ArrowRight className="w-5 h-5 text-accent flex-shrink-0" />
           </div>
         </Card>
       </Link>

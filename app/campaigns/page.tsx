@@ -42,13 +42,13 @@ export default function CampaignsPage() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8">
       <Header
         title="Campagnes"
         description="Gérez et suivez vos campagnes d'influence"
         action={
           <Link href="/campaigns/new">
-            <Button>
+            <Button className="w-full sm:w-auto">
               <Plus className="w-4 h-4 mr-2" />
               Nouvelle campagne
             </Button>

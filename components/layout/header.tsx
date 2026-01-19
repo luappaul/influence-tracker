@@ -11,16 +11,16 @@ interface HeaderProps {
 
 export function Header({ title, description, children, action }: HeaderProps) {
   return (
-    <header className="mb-8">
-      <div className="flex items-start justify-between">
+    <header className="mb-6 sm:mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
           {title && (
-            <h1 className="text-2xl font-semibold text-foreground tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-semibold text-foreground tracking-tight">
               {title}
             </h1>
           )}
           {description && (
-            <p className="mt-1 text-foreground-secondary">
+            <p className="mt-1 text-sm sm:text-base text-foreground-secondary">
               {description}
             </p>
           )}

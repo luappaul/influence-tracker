@@ -30,7 +30,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'fixed left-0 top-0 z-40 h-screen border-r border-border/50 bg-card flex flex-col transition-all duration-300 ease-in-out',
+        'fixed left-0 top-0 z-40 h-screen border-r border-border/50 bg-card hidden md:flex flex-col transition-all duration-300 ease-in-out',
         isExpanded ? 'w-52' : 'w-16'
       )}
       onMouseEnter={() => setIsExpanded(true)}

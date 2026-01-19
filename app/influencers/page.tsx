@@ -123,49 +123,49 @@ export default function InfluencersPage() {
   const totalCampaigns = campaigns.length;
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 sm:space-y-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <Header
           title="Mes Influenceurs"
           description="Influenceurs avec qui vous avez déjà travaillé"
         />
         <Link href="/influencers/search">
-          <Button>
+          <Button className="w-full sm:w-auto">
             <Instagram className="w-4 h-4 mr-2" />
-            Trouver de nouveaux influenceurs
+            <span className="sm:inline">Trouver</span><span className="hidden sm:inline"> de nouveaux influenceurs</span>
           </Button>
         </Link>
       </div>
 
       {/* Stats globales */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="p-4">
-          <p className="text-sm text-foreground-secondary">Influenceurs</p>
-          <p className="text-2xl font-semibold text-foreground">{influencersWithHistory.length}</p>
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <Card className="p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-foreground-secondary">Influenceurs</p>
+          <p className="text-lg sm:text-2xl font-semibold text-foreground">{influencersWithHistory.length}</p>
         </Card>
-        <Card className="p-4">
-          <p className="text-sm text-foreground-secondary">Campagnes</p>
-          <p className="text-2xl font-semibold text-foreground">{totalCampaigns}</p>
+        <Card className="p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-foreground-secondary">Campagnes</p>
+          <p className="text-lg sm:text-2xl font-semibold text-foreground">{totalCampaigns}</p>
         </Card>
-        <Card className="p-4">
-          <p className="text-sm text-foreground-secondary">Budget total investi</p>
-          <p className="text-2xl font-semibold text-foreground">{formatCurrency(totalBudget)}</p>
+        <Card className="p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-foreground-secondary">Budget total</p>
+          <p className="text-lg sm:text-2xl font-semibold text-foreground">{formatCurrency(totalBudget)}</p>
         </Card>
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-md">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
+        <div className="relative flex-1 sm:max-w-md">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-foreground-secondary" />
           <Input
-            placeholder="Rechercher un influenceur..."
+            placeholder="Rechercher..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="pl-10"
           />
         </div>
 
-        <Tabs defaultValue="table" className="ml-auto">
+        <Tabs defaultValue="table" className="hidden sm:block ml-auto">
           <TabsList>
             <TabsTrigger value="table" onClick={() => setView('table')}>
               Tableau
@@ -177,9 +177,9 @@ export default function InfluencersPage() {
         </Tabs>
       </div>
 
-      {/* Vue tableau */}
+      {/* Vue tableau - Desktop only */}
       {view === 'table' && (
-        <div className="bg-card rounded-xl border border-border/50 overflow-hidden">
+        <div className="hidden sm:block bg-card rounded-xl border border-border/50 overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -273,6 +273,57 @@ export default function InfluencersPage() {
               })}
             </TableBody>
           </Table>
+        </div>
+      )}
+
+      {/* Vue mobile cards (quand table view est sélectionné) */}
+      {view === 'table' && (
+        <div className="sm:hidden space-y-3">
+          {sortedInfluencers.map(influencer => {
+            const lastCampaign = influencer.campaigns[influencer.campaigns.length - 1];
+            return (
+              <Card key={influencer.username} className="p-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {influencer.profilePicUrl ? (
+                      <img
+                        src={`/api/proxy-image?url=${encodeURIComponent(influencer.profilePicUrl)}`}
+                        alt={influencer.username}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-sm font-medium text-accent">
+                        {influencer.username.slice(0, 2).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-foreground text-sm truncate">
+                      {influencer.fullName || influencer.username}
+                    </p>
+                    <p className="text-xs text-foreground-secondary">@{influencer.username}</p>
+                    <div className="flex flex-wrap gap-2 mt-1.5 text-xs">
+                      <span className="text-foreground-secondary">{formatNumber(influencer.followersCount)} followers</span>
+                      <span className="text-foreground-secondary">•</span>
+                      <span className="text-foreground">{influencer.campaigns.length} camp.</span>
+                      <span className="text-foreground-secondary">•</span>
+                      <span className="font-medium text-foreground">{formatCurrency(influencer.totalBudget)}</span>
+                    </div>
+                  </div>
+                </div>
+                {lastCampaign && (
+                  <div className="mt-2 pt-2 border-t border-border/30">
+                    <Link
+                      href={`/campaigns/${lastCampaign.id}`}
+                      className="text-xs text-accent hover:underline"
+                    >
+                      Dernière : {lastCampaign.name}
+                    </Link>
+                  </div>
+                )}
+              </Card>
+            );
+          })}
         </div>
       )}
 

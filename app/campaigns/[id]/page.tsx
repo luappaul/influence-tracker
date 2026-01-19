@@ -476,22 +476,22 @@ export default function CampaignDetailPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-4 sm:space-y-6 max-w-6xl">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-start sm:items-center gap-3 sm:gap-4">
         <Link
           href="/campaigns"
-          className="w-10 h-10 rounded-lg bg-background-secondary flex items-center justify-center hover:bg-border transition-colors"
+          className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-background-secondary flex items-center justify-center hover:bg-border transition-colors flex-shrink-0"
         >
-          <ArrowLeft className="w-5 h-5 text-foreground-secondary" />
+          <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5 text-foreground-secondary" />
         </Link>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           {isEditing && !isLocked ? (
             <div className="flex items-center gap-2">
               <Input
                 value={editedName}
                 onChange={(e) => setEditedName(e.target.value)}
-                className="text-xl font-semibold"
+                className="text-lg sm:text-xl font-semibold"
                 autoFocus
               />
               <Button size="sm" onClick={handleSaveName}>
@@ -509,8 +509,8 @@ export default function CampaignDetailPage() {
               </Button>
             </div>
           ) : (
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-semibold text-foreground">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <h1 className="text-lg sm:text-2xl font-semibold text-foreground truncate">
                 {campaign.name}
               </h1>
               {!isLocked && (
@@ -522,28 +522,31 @@ export default function CampaignDetailPage() {
                 </button>
               )}
               {isLocked && (
-                <Badge className="bg-foreground-secondary/10 text-foreground-secondary">
+                <Badge className="bg-foreground-secondary/10 text-foreground-secondary text-xs">
                   <Lock className="w-3 h-3 mr-1" />
                   Verrouillée
                 </Badge>
               )}
-              <Badge className={statusColors[campaign.status]}>
+              <Badge className={`${statusColors[campaign.status]} text-xs`}>
                 {statusLabels[campaign.status]}
               </Badge>
             </div>
           )}
-          <p className="text-foreground-secondary">
+          <p className="text-sm sm:text-base text-foreground-secondary">
             Créée le{' '}
             {new Date(campaign.createdAt).toLocaleDateString('fr-FR', {
               day: 'numeric',
-              month: 'long',
+              month: 'short',
               year: 'numeric',
             })}
           </p>
         </div>
-        <Button variant="secondary" onClick={handleDeleteCampaign}>
+        <Button variant="secondary" onClick={handleDeleteCampaign} className="hidden sm:flex">
           <Trash2 className="w-4 h-4 mr-2" />
           Supprimer
+        </Button>
+        <Button variant="secondary" onClick={handleDeleteCampaign} className="sm:hidden p-2">
+          <Trash2 className="w-4 h-4" />
         </Button>
       </div>
 
@@ -725,8 +728,8 @@ export default function CampaignDetailPage() {
         {/* Grille des influenceurs */}
         {campaign.influencers.length > 0 ? (
           <div className="space-y-2">
-            {/* Header de la grille */}
-            <div className="grid grid-cols-12 gap-4 px-4 py-2 text-sm font-medium text-foreground-secondary">
+            {/* Header de la grille - masqué sur mobile */}
+            <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-sm font-medium text-foreground-secondary">
               <div className={isLocked ? "col-span-2" : "col-span-3"}>Influenceur</div>
               <div className="col-span-1 text-center">Followers</div>
               <div className="col-span-1 text-center">Budget</div>
@@ -745,9 +748,9 @@ export default function CampaignDetailPage() {
 
               return (
                 <div key={influencer.username} className="space-y-0">
-                  {/* Ligne principale */}
+                  {/* Ligne principale - Desktop */}
                   <div
-                    className={`grid grid-cols-12 gap-4 items-center p-4 rounded-lg bg-background-secondary ${
+                    className={`hidden md:grid grid-cols-12 gap-4 items-center p-4 rounded-lg bg-background-secondary ${
                       isExpanded ? 'rounded-b-none' : ''
                     }`}
                   >
@@ -958,6 +961,80 @@ export default function CampaignDetailPage() {
                     )}
                   </div>
 
+                  {/* Ligne principale - Mobile */}
+                  <div
+                    className={`md:hidden p-3 rounded-lg bg-background-secondary ${
+                      isExpanded ? 'rounded-b-none' : ''
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+                        {influencer.profilePicUrl ? (
+                          <img
+                            src={`/api/proxy-image?url=${encodeURIComponent(influencer.profilePicUrl)}`}
+                            alt={influencer.username}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span className="text-sm font-medium text-accent">
+                            {influencer.username.slice(0, 2).toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-foreground text-sm truncate">
+                          {influencer.fullName || influencer.username}
+                        </p>
+                        <p className="text-xs text-foreground-secondary">@{influencer.username}</p>
+                        <div className="flex flex-wrap gap-2 mt-2 text-xs">
+                          <span className="text-foreground-secondary">{formatNumber(influencer.followersCount)} followers</span>
+                          <span className="text-foreground-secondary">•</span>
+                          <span className="text-foreground">{influencer.budget.toLocaleString('fr-FR')} €</span>
+                        </div>
+                      </div>
+                      {!isLocked && (
+                        <button
+                          onClick={() => removeInfluencer(influencer.username)}
+                          className="p-2 text-foreground-secondary hover:text-danger"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/30">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => scrapePosts(influencer)}
+                          disabled={isScraping}
+                          className="h-7 text-xs px-2"
+                        >
+                          {isScraping ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-3 h-3" />
+                          )}
+                        </Button>
+                        {postsCount > 0 && (
+                          <button
+                            onClick={() => toggleExpand(influencer.username)}
+                            className="flex items-center gap-1 text-sm text-accent"
+                          >
+                            {postsCount} posts
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </button>
+                        )}
+                      </div>
+                      {isLocked && influencer.collabSigned && (
+                        <Badge className="bg-success/10 text-success text-xs">
+                          <Check className="w-3 h-3 mr-1" />
+                          Signé
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Posts expandés - Format tableau */}
                   {isExpanded && influencer.scrapedPosts && influencer.scrapedPosts.length > 0 && (
                     <div className="bg-background-secondary/50 rounded-b-lg p-4 border-t border-border/30">
@@ -972,8 +1049,8 @@ export default function CampaignDetailPage() {
                         )}
                       </div>
 
-                      {/* Header du tableau */}
-                      <div className="grid grid-cols-12 gap-3 px-3 py-2 text-xs font-medium text-foreground-secondary border-b border-border/30 mb-2">
+                      {/* Header du tableau - masqué sur mobile */}
+                      <div className="hidden sm:grid grid-cols-12 gap-3 px-3 py-2 text-xs font-medium text-foreground-secondary border-b border-border/30 mb-2">
                         <div className="col-span-1">Post</div>
                         <div className="col-span-2">Date</div>
                         <div className="col-span-1 text-center">Type</div>
@@ -987,8 +1064,9 @@ export default function CampaignDetailPage() {
                       <div className="space-y-2">
                         {influencer.scrapedPosts.map((post) => (
                           <React.Fragment key={post.id || post.shortCode}>
+                          {/* Desktop row */}
                           <div
-                            className="grid grid-cols-12 gap-3 items-center p-3 rounded-lg bg-background hover:bg-background/80 transition-colors"
+                            className="hidden sm:grid grid-cols-12 gap-3 items-center p-3 rounded-lg bg-background hover:bg-background/80 transition-colors"
                           >
                             {/* Thumbnail */}
                             <div className="col-span-1">
@@ -1086,6 +1164,56 @@ export default function CampaignDetailPage() {
                             </div>
                           </div>
 
+                          {/* Mobile post card */}
+                          <div className="sm:hidden p-3 rounded-lg bg-background">
+                            <div className="flex gap-3">
+                              <a href={post.url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0">
+                                <div className="w-14 h-14 rounded-lg bg-background-secondary overflow-hidden">
+                                  {post.displayUrl ? (
+                                    <img
+                                      src={`/api/proxy-image?url=${encodeURIComponent(post.displayUrl)}`}
+                                      alt=""
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                      {post.type === 'Video' ? <Video className="w-5 h-5 text-foreground-secondary" /> : <ImageIcon className="w-5 h-5 text-foreground-secondary" />}
+                                    </div>
+                                  )}
+                                </div>
+                              </a>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 text-xs text-foreground-secondary mb-1">
+                                  <span>{formatDate(post.timestamp)}</span>
+                                  <span>•</span>
+                                  <span className="flex items-center gap-0.5"><Heart className="w-3 h-3" />{formatNumber(post.likesCount)}</span>
+                                  <span className="flex items-center gap-0.5"><MessageCircle className="w-3 h-3" />{formatNumber(post.commentsCount)}</span>
+                                </div>
+                                <p className="text-xs text-foreground-secondary line-clamp-2 mb-2">
+                                  {post.caption || <span className="italic">Pas de légende</span>}
+                                </p>
+                                <button
+                                  onClick={() => toggleProductMention(influencer.username, post.id || post.shortCode)}
+                                  className="text-xs"
+                                >
+                                  {post.mentionsProduct === true ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-success/10 text-success">
+                                      <CheckCircle2 className="w-3 h-3" />Produit
+                                    </span>
+                                  ) : post.mentionsProduct === false ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-danger/10 text-danger">
+                                      <XCircle className="w-3 h-3" />Non
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-foreground-secondary/10 text-foreground-secondary">
+                                      <HelpCircle className="w-3 h-3" />?
+                                    </span>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
                         </React.Fragment>
                         ))}
                       </div>
@@ -1096,8 +1224,8 @@ export default function CampaignDetailPage() {
               );
             })}
 
-            {/* Total */}
-            <div className="grid grid-cols-12 gap-4 items-center px-4 py-3 border-t border-border mt-2">
+            {/* Total - Desktop */}
+            <div className="hidden md:grid grid-cols-12 gap-4 items-center px-4 py-3 border-t border-border mt-2">
               <div className={`${isLocked ? 'col-span-2' : 'col-span-3'} font-medium text-foreground`}>Total</div>
               <div className="col-span-1 text-center font-medium text-foreground">
                 {formatNumber(totalFollowers)}
@@ -1108,6 +1236,14 @@ export default function CampaignDetailPage() {
               <div className={isLocked ? "col-span-6" : "col-span-5"}></div>
               <div className="col-span-2 text-center font-medium text-foreground">
                 {totalPosts} posts
+              </div>
+            </div>
+            {/* Total - Mobile */}
+            <div className="md:hidden flex items-center justify-between px-3 py-3 border-t border-border mt-2 text-sm">
+              <span className="font-medium text-foreground">Total</span>
+              <div className="flex items-center gap-4 text-foreground-secondary">
+                <span>{formatNumber(totalFollowers)} followers</span>
+                <span className="font-semibold text-foreground">{campaign.totalBudget.toLocaleString('fr-FR')} €</span>
               </div>
             </div>
           </div>

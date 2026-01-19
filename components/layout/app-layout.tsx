@@ -3,6 +3,7 @@
 import { useAuth } from '@/lib/auth-context';
 import { usePathname } from 'next/navigation';
 import { Sidebar } from './sidebar';
+import { MobileNav } from './mobile-nav';
 import { Loader2 } from 'lucide-react';
 
 interface AppLayoutProps {
@@ -51,8 +52,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <>
       <Sidebar />
-      <main className="ml-16 min-h-screen">
-        <div className="max-w-6xl mx-auto px-6 py-8">
+      <MobileNav />
+      <main className="md:ml-16 min-h-screen pb-20 md:pb-0">
+        <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 md:py-8">
           {children}
         </div>
       </main>
