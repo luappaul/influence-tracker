@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-// Build timestamp: 2025-01-19T19:00:00 - Force Vercel rebuild
+// Build timestamp: 2025-01-19T20:30:00 - Force Vercel rebuild v2
 const nextConfig: NextConfig = {
   devIndicators: false,
 };
