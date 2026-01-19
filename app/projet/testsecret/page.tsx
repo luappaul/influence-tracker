@@ -395,8 +395,429 @@ function InfluencerAttribution({ result }: { result: FullAttributionResult }) {
   );
 }
 
+// Nouveau composant: Détail complet des données et calculs
+function RawDataBreakdown({ scenario, result }: ScenarioResultProps) {
+  const { input } = scenario;
+  const { layer1, layer2, layer3, layer4, layer5, confidence } = result;
+
+  // Calculer les sessions attendues (comme dans le modèle)
+  const avgSessionsLast7 = input.historicalData.daily.slice(-7)
+    .reduce((sum, d) => sum + d.sessions, 0) / 7;
+
+  return (
+    <div className="space-y-6">
+      {/* SECTION 1: Données d'entrée brutes */}
+      <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700">
+        <h4 className="font-semibold text-foreground mb-4 flex items-center gap-2 text-lg">
+          📊 Données d'entrée brutes
+        </h4>
+
+        {/* Données observées 24h */}
+        <div className="mb-4">
+          <h5 className="text-sm font-medium text-accent mb-2">Fenêtre 24h observée</h5>
+          <div className="grid grid-cols-3 gap-2 text-sm">
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">CA observé:</span>
+              <span className="float-right font-mono font-medium">{formatCurrency(input.observedRevenue24h)}</span>
+            </div>
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">Sessions:</span>
+              <span className="float-right font-mono font-medium">{input.observedSessions24h.toLocaleString()}</span>
+            </div>
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">Sessions IG:</span>
+              <span className="float-right font-mono font-medium">{input.observedIgSessions24h.toLocaleString()} ({((input.observedIgSessions24h / input.observedSessions24h) * 100).toFixed(1)}%)</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Historique */}
+        <div className="mb-4">
+          <h5 className="text-sm font-medium text-accent mb-2">Données historiques ({input.historicalData.daily.length} jours)</h5>
+          <div className="grid grid-cols-4 gap-2 text-sm">
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">CA J-7 (moy):</span>
+              <span className="float-right font-mono font-medium">{formatCurrency(layer1.ma7)}</span>
+            </div>
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">CA J-14 (moy):</span>
+              <span className="float-right font-mono font-medium">{formatCurrency(layer1.ma14)}</span>
+            </div>
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">CA J-28 (moy):</span>
+              <span className="float-right font-mono font-medium">{formatCurrency(layer1.ma28)}</span>
+            </div>
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">Sessions (moy):</span>
+              <span className="float-right font-mono font-medium">{Math.round(avgSessionsLast7).toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Contexte Promo */}
+        <div className="mb-4">
+          <h5 className="text-sm font-medium text-accent mb-2">Contexte Promotionnel</h5>
+          <div className="grid grid-cols-4 gap-2 text-sm">
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">Remise:</span>
+              <span className="float-right font-mono font-medium">{(input.promoContext.discountLevel * 100).toFixed(0)}%</span>
+            </div>
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">Code global:</span>
+              <span className={`float-right font-mono font-medium ${input.promoContext.globalCodeActive ? 'text-green-400' : 'text-gray-500'}`}>
+                {input.promoContext.globalCodeActive ? 'OUI' : 'NON'}
+              </span>
+            </div>
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">Bundles:</span>
+              <span className={`float-right font-mono font-medium ${input.promoContext.bundlesActive ? 'text-green-400' : 'text-gray-500'}`}>
+                {input.promoContext.bundlesActive ? 'OUI' : 'NON'}
+              </span>
+            </div>
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">Free shipping:</span>
+              <span className={`float-right font-mono font-medium ${input.promoContext.freeShipping ? 'text-green-400' : 'text-gray-500'}`}>
+                {input.promoContext.freeShipping ? 'OUI' : 'NON'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Contexte Paid Media */}
+        <div className="mb-4">
+          <h5 className="text-sm font-medium text-accent mb-2">Paid Media (24h)</h5>
+          <div className="grid grid-cols-5 gap-2 text-sm">
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">Meta:</span>
+              <span className="float-right font-mono font-medium">{formatCurrency(input.paidMediaContext.metaSpend24h)}</span>
+            </div>
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">Google:</span>
+              <span className="float-right font-mono font-medium">{formatCurrency(input.paidMediaContext.googleSpend24h)}</span>
+            </div>
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">Baseline:</span>
+              <span className="float-right font-mono font-medium">{formatCurrency(input.paidMediaContext.paidSpendBaseline)}</span>
+            </div>
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">CPM Δ:</span>
+              <span className="float-right font-mono font-medium">×{input.paidMediaContext.avgCpmChange.toFixed(2)}</span>
+            </div>
+            <div className="p-2 rounded bg-background-secondary">
+              <span className="text-foreground-secondary">CPC Δ:</span>
+              <span className="float-right font-mono font-medium">×{input.paidMediaContext.avgCpcChange.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Influenceurs */}
+        <div>
+          <h5 className="text-sm font-medium text-accent mb-2">Influenceurs actifs ({input.influencers.length})</h5>
+          {input.influencers.length === 0 ? (
+            <p className="text-sm text-foreground-secondary italic">Aucun influenceur dans cette fenêtre</p>
+          ) : (
+            <div className="space-y-2">
+              {input.influencers.map((inf, i) => {
+                const hoursSince = (new Date(input.currentDate).getTime() - new Date(inf.postTimestamp).getTime()) / (1000 * 60 * 60);
+                return (
+                  <div key={i} className="p-3 rounded bg-background-secondary">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-8 h-8 rounded-full overflow-hidden bg-accent/20">
+                        <img src={inf.profilePicUrl} alt="" className="w-full h-full object-cover" />
+                      </div>
+                      <span className="font-medium">@{inf.username}</span>
+                      <span className="text-xs text-foreground-secondary ml-auto">Posté il y a {hoursSince.toFixed(1)}h</span>
+                    </div>
+                    <div className="grid grid-cols-5 gap-2 text-xs">
+                      <div>
+                        <span className="text-foreground-secondary">Reach:</span>
+                        <span className="ml-1 font-mono">{inf.reachEstimated.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-foreground-secondary">Engage:</span>
+                        <span className="ml-1 font-mono">{inf.engagementRate.toFixed(2)}%</span>
+                      </div>
+                      <div>
+                        <span className="text-foreground-secondary">Lien:</span>
+                        <span className={`ml-1 ${inf.storyWithLink ? 'text-green-400' : 'text-gray-500'}`}>
+                          {inf.storyWithLink ? '✓' : '✗'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-foreground-secondary">Code:</span>
+                        <span className={`ml-1 ${inf.personalCodeUsed ? 'text-green-400' : 'text-gray-500'}`}>
+                          {inf.personalCodeUsed ? '✓' : '✗'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-foreground-secondary">Historique:</span>
+                        <span className="ml-1 font-mono">
+                          {inf.historicalConfidence !== undefined ? `${(inf.historicalConfidence * 100).toFixed(0)}%` : 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* SECTION 2: Calculs couche par couche */}
+      <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700">
+        <h4 className="font-semibold text-foreground mb-4 flex items-center gap-2 text-lg">
+          🧮 Calculs détaillés par couche
+        </h4>
+
+        {/* Couche 1 */}
+        <div className="mb-4 p-3 rounded-lg bg-gray-500/10 border-l-4 border-gray-500">
+          <h5 className="font-medium text-gray-400 mb-2">Couche 1 - Saisonnalité (Baseline)</h5>
+          <div className="text-sm space-y-1 font-mono">
+            <p className="text-foreground-secondary">
+              expected_base = 0.5 × MA7 + 0.3 × MA14 + 0.2 × MA28
+            </p>
+            <p className="text-foreground">
+              = 0.5 × {layer1.ma7.toFixed(0)} + 0.3 × {layer1.ma14.toFixed(0)} + 0.2 × {layer1.ma28.toFixed(0)}
+            </p>
+            <p className="text-foreground">
+              = {(0.5 * layer1.ma7 + 0.3 * layer1.ma14 + 0.2 * layer1.ma28).toFixed(0)} €
+            </p>
+            {layer1.yoyFactor !== 1 && (
+              <>
+                <p className="text-foreground-secondary mt-2">× yoy_factor = {layer1.yoyFactor.toFixed(3)}</p>
+              </>
+            )}
+            <p className="text-accent font-semibold mt-2">
+              → Baseline: {formatCurrency(layer1.expectedRevenue24hNoActivation)}
+            </p>
+          </div>
+        </div>
+
+        {/* Couche 2 */}
+        <div className="mb-4 p-3 rounded-lg bg-yellow-500/10 border-l-4 border-yellow-500">
+          <h5 className="font-medium text-yellow-500 mb-2">Couche 2 - Momentums E-commerce</h5>
+          <div className="text-sm space-y-1 font-mono">
+            {layer2.activeMomentums.length === 0 ? (
+              <p className="text-foreground-secondary">Aucun momentum actif → multiplier = 1.00</p>
+            ) : (
+              <>
+                <p className="text-foreground-secondary">Momentums actifs:</p>
+                {layer2.activeMomentums.map((m, i) => (
+                  <p key={i} className="text-foreground pl-2">
+                    - {m.name}: intensité {(m.intensity * 100).toFixed(0)}% × impact {(m.impact / m.intensity * 100).toFixed(0)}% = +{(m.impact * 100).toFixed(1)}%
+                  </p>
+                ))}
+              </>
+            )}
+            <p className="text-foreground-secondary mt-2">
+              momentum_multiplier = {layer2.momentumMultiplier.toFixed(3)}
+            </p>
+            <p className="text-foreground">
+              = {formatCurrency(layer1.expectedRevenue24hNoActivation)} × {layer2.momentumMultiplier.toFixed(3)}
+            </p>
+            <p className="text-accent font-semibold mt-2">
+              → Avec momentum: {formatCurrency(layer2.expectedRevenue24hWithMomentum)}
+            </p>
+          </div>
+        </div>
+
+        {/* Couche 3 */}
+        <div className="mb-4 p-3 rounded-lg bg-pink-500/10 border-l-4 border-pink-500">
+          <h5 className="font-medium text-pink-500 mb-2">Couche 3 - Promos & Offres</h5>
+          <div className="text-sm space-y-1 font-mono">
+            <p className="text-foreground-secondary">
+              promo_score = 0.4×discount + 0.3×code + 0.2×bundles + 0.1×shipping
+            </p>
+            <p className="text-foreground">
+              = 0.4×{input.promoContext.discountLevel.toFixed(2)} + 0.3×{input.promoContext.globalCodeActive ? '1' : '0'} + 0.2×{input.promoContext.bundlesActive ? '1' : '0'} + 0.1×{input.promoContext.freeShipping ? '1' : '0'}
+            </p>
+            <p className="text-foreground">
+              = {layer3.promoScore.toFixed(3)}
+            </p>
+            <p className="text-foreground-secondary mt-2">
+              promo_multiplier = 1 + {layer3.promoScore.toFixed(3)} = {layer3.promoMultiplier.toFixed(3)}
+            </p>
+            <p className="text-foreground">
+              = {formatCurrency(layer2.expectedRevenue24hWithMomentum)} × {layer3.promoMultiplier.toFixed(3)}
+            </p>
+            <p className="text-accent font-semibold mt-2">
+              → Avec promos: {formatCurrency(layer3.expectedRevenue24hWithPromos)}
+            </p>
+          </div>
+        </div>
+
+        {/* Couche 4 */}
+        <div className="mb-4 p-3 rounded-lg bg-purple-500/10 border-l-4 border-purple-500">
+          <h5 className="font-medium text-purple-500 mb-2">Couche 4 - Paid Media</h5>
+          <div className="text-sm space-y-1 font-mono">
+            <p className="text-foreground-secondary">
+              paid_pressure = total_spend / baseline_spend
+            </p>
+            <p className="text-foreground">
+              = ({input.paidMediaContext.metaSpend24h} + {input.paidMediaContext.googleSpend24h}) / {input.paidMediaContext.paidSpendBaseline}
+              = {layer4.paidPressure.toFixed(3)}
+            </p>
+            <p className="text-foreground-secondary mt-2">
+              traffic_lift = sessions_obs / sessions_exp = {input.observedSessions24h} / {Math.round(avgSessionsLast7)} = {layer4.trafficLift.toFixed(3)}
+            </p>
+            <p className="text-foreground-secondary mt-2">
+              paid_influence = 0.5×pressure + 0.3×traffic + 0.2×max(cpm,cpc)
+            </p>
+            <p className="text-foreground">
+              = 0.5×{layer4.paidPressure.toFixed(2)} + 0.3×{layer4.trafficLift.toFixed(2)} + 0.2×{Math.max(input.paidMediaContext.avgCpmChange, input.paidMediaContext.avgCpcChange).toFixed(2)}
+              = {layer4.paidInfluenceScore.toFixed(3)}
+            </p>
+            <p className="text-foreground-secondary mt-2">
+              paid_multiplier = 1 + 0.5×(score - 1) = 1 + 0.5×({layer4.paidInfluenceScore.toFixed(3)} - 1) = {layer4.paidMultiplier.toFixed(3)}
+            </p>
+            <p className="text-foreground">
+              = {formatCurrency(layer3.expectedRevenue24hWithPromos)} × {layer4.paidMultiplier.toFixed(3)}
+            </p>
+            <p className="text-accent font-semibold mt-2">
+              → Expected final (avant influence): {formatCurrency(layer4.expectedRevenue24hWithAllCorrections)}
+            </p>
+          </div>
+        </div>
+
+        {/* Couche 5 */}
+        <div className="mb-4 p-3 rounded-lg bg-green-500/10 border-l-4 border-green-500">
+          <h5 className="font-medium text-green-500 mb-2">Couche 5 - Attribution Influenceur</h5>
+          <div className="text-sm space-y-1 font-mono">
+            <p className="text-foreground-secondary">
+              uplift_résiduel = CA_observé - expected_final
+            </p>
+            <p className="text-foreground">
+              = {formatCurrency(input.observedRevenue24h)} - {formatCurrency(layer4.expectedRevenue24hWithAllCorrections)}
+            </p>
+            <p className={`font-semibold ${layer5.upliftResidual > 0 ? 'text-green-400' : 'text-red-400'}`}>
+              = {formatCurrency(layer5.upliftResidual)}
+            </p>
+
+            {layer5.influencerAttributions.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-green-500/20">
+                <p className="text-foreground-secondary mb-2">Répartition par influenceur:</p>
+                {layer5.influencerAttributions.map((attr, i) => (
+                  <div key={i} className="pl-2 mb-2">
+                    <p className="text-foreground font-medium">@{attr.influencer.username}</p>
+                    <p className="text-foreground-secondary text-xs">
+                      signal = 0.30×reach({attr.reachScore.toFixed(2)}) + 0.25×engage({attr.engagementScore.toFixed(2)}) + 0.20×timing({attr.timingScore.toFixed(2)}) + 0.15×convert({attr.conversionSignal.toFixed(2)}) + 0.10×history({attr.historicalScore.toFixed(2)})
+                    </p>
+                    <p className="text-foreground text-xs">
+                      = {attr.rawSignal.toFixed(3)} → poids: {(attr.weight * 100).toFixed(1)}%
+                    </p>
+                    <p className="text-green-400 text-xs font-semibold">
+                      → CA attribué: {formatCurrency(attr.attributedUplift)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION 3: Calcul du score de confiance */}
+      <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700">
+        <h4 className="font-semibold text-foreground mb-4 flex items-center gap-2 text-lg">
+          🎯 Calcul du Score de Confiance
+        </h4>
+
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          {/* Signal Strength */}
+          <div className="p-3 rounded bg-background-secondary">
+            <p className="font-medium text-foreground mb-1">A) Signal Strength</p>
+            <p className="text-foreground-secondary text-xs font-mono">
+              = min(uplift / (0.15 × expected), 1)
+            </p>
+            <p className="text-foreground text-xs font-mono">
+              = min({layer5.upliftResidual.toFixed(0)} / {(0.15 * layer4.expectedRevenue24hWithAllCorrections).toFixed(0)}, 1)
+            </p>
+            <p className="text-accent font-semibold">= {(confidence.components.signalStrength * 100).toFixed(1)}%</p>
+          </div>
+
+          {/* Temporal Purity */}
+          <div className="p-3 rounded bg-background-secondary">
+            <p className="font-medium text-foreground mb-1">B) Temporal Purity</p>
+            <p className="text-foreground-secondary text-xs font-mono">
+              = 0.5×share_0-1h + 0.3×share_1-3h + ...
+            </p>
+            <p className="text-foreground text-xs">
+              Mesure la concentration de l'uplift dans les premières heures
+            </p>
+            <p className="text-accent font-semibold">= {(confidence.components.temporalPurity * 100).toFixed(1)}%</p>
+          </div>
+
+          {/* Channel Evidence */}
+          <div className="p-3 rounded bg-background-secondary">
+            <p className="font-medium text-foreground mb-1">C) Channel Evidence</p>
+            <p className="text-foreground-secondary text-xs font-mono">
+              = (ig_share - 0.10) / 0.20
+            </p>
+            <p className="text-foreground text-xs font-mono">
+              IG share = {(layer4.instagramSessionsShare * 100).toFixed(1)}%
+            </p>
+            <p className="text-accent font-semibold">= {(confidence.components.channelEvidence * 100).toFixed(1)}%</p>
+          </div>
+
+          {/* Confounding */}
+          <div className="p-3 rounded bg-background-secondary">
+            <p className="font-medium text-foreground mb-1">D) Confounding (peu de bruit)</p>
+            <p className="text-foreground-secondary text-xs font-mono">
+              = 1 / (1 + 1×(mom-1) + 0.8×(promo-1) + 0.8×(paid-1))
+            </p>
+            <p className="text-foreground text-xs font-mono">
+              = 1 / (1 + {(layer2.momentumMultiplier - 1).toFixed(2)} + {(0.8 * (layer3.promoMultiplier - 1)).toFixed(2)} + {(0.8 * (layer4.paidMultiplier - 1)).toFixed(2)})
+            </p>
+            <p className="text-accent font-semibold">= {(confidence.components.confounding * 100).toFixed(1)}%</p>
+          </div>
+
+          {/* Overlap */}
+          <div className="p-3 rounded bg-background-secondary">
+            <p className="font-medium text-foreground mb-1">E) Overlap (pas de chevauchement)</p>
+            <p className="text-foreground-secondary text-xs font-mono">
+              = 1 / (1 + 0.25×(n_influencers - 1))
+            </p>
+            <p className="text-foreground text-xs font-mono">
+              = 1 / (1 + 0.25×({input.influencers.length} - 1))
+            </p>
+            <p className="text-accent font-semibold">= {(confidence.components.overlap * 100).toFixed(1)}%</p>
+          </div>
+
+          {/* Clarity */}
+          <div className="p-3 rounded bg-background-secondary">
+            <p className="font-medium text-foreground mb-1">F) Clarity (clarté attribution)</p>
+            <p className="text-foreground-secondary text-xs font-mono">
+              = (top_weight - second_weight) / 0.30
+            </p>
+            <p className="text-foreground text-xs">
+              {layer5.influencerAttributions.length < 2 ? 'Un seul influenceur → 100%' : 'Différence entre top 2 poids'}
+            </p>
+            <p className="text-accent font-semibold">= {(confidence.components.clarity * 100).toFixed(1)}%</p>
+          </div>
+        </div>
+
+        {/* Final calculation */}
+        <div className="mt-4 p-3 rounded-lg bg-accent/10 border border-accent/20">
+          <p className="font-medium text-foreground mb-2">Score final:</p>
+          <p className="text-sm font-mono text-foreground-secondary">
+            = 0.25×signal + 0.20×temporal + 0.15×channel + 0.20×confound + 0.10×overlap + 0.10×clarity
+          </p>
+          <p className="text-sm font-mono text-foreground">
+            = 0.25×{(confidence.components.signalStrength).toFixed(2)} + 0.20×{(confidence.components.temporalPurity).toFixed(2)} + 0.15×{(confidence.components.channelEvidence).toFixed(2)} + 0.20×{(confidence.components.confounding).toFixed(2)} + 0.10×{(confidence.components.overlap).toFixed(2)} + 0.10×{(confidence.components.clarity).toFixed(2)}
+          </p>
+          <p className={`text-2xl font-bold mt-2 ${getConfidenceColor(confidence.confidenceScore)}`}>
+            = {confidence.confidenceScore}/100
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ScenarioCard({ scenario, result }: ScenarioResultProps) {
   const [expanded, setExpanded] = useState(false);
+  const [showRawData, setShowRawData] = useState(false);
   const badge = getScenarioBadge(scenario.scenario);
 
   const upliftPercent = result.baselineRevenue > 0
@@ -448,14 +869,24 @@ function ScenarioCard({ scenario, result }: ScenarioResultProps) {
         </div>
       </div>
 
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => setExpanded(!expanded)}
-        className="w-full"
-      >
-        {expanded ? 'Réduire' : 'Voir le détail'}
-      </Button>
+      <div className="flex gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setExpanded(!expanded)}
+          className="flex-1"
+        >
+          {expanded ? 'Réduire graphiques' : 'Voir graphiques'}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowRawData(!showRawData)}
+          className="flex-1"
+        >
+          {showRawData ? 'Masquer calculs' : '📊 Voir tous les chiffres'}
+        </Button>
+      </div>
 
       {expanded && (
         <div className="mt-4 pt-4 border-t border-border/50 space-y-6">
@@ -465,6 +896,12 @@ function ScenarioCard({ scenario, result }: ScenarioResultProps) {
           </div>
           <HourlyAnalysis scenario={scenario} result={result} />
           <InfluencerAttribution result={result} />
+        </div>
+      )}
+
+      {showRawData && (
+        <div className="mt-4 pt-4 border-t border-border/50">
+          <RawDataBreakdown scenario={scenario} result={result} />
         </div>
       )}
     </Card>
