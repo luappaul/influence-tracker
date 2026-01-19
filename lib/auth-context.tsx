@@ -219,7 +219,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!mounted || isLoading) return;
 
       const publicPaths = ['/login', '/reset-password', '/privacy', '/terms'];
-      const isPublicPath = publicPaths.some(p => pathname === p) || pathname.startsWith('/api/') || pathname.startsWith('/collab/');
+      const isPublicPath = publicPaths.some(p => pathname === p) || pathname.startsWith('/api/') || pathname.startsWith('/collab/') || pathname.startsWith('/projet/');
       const isOnboardingPath = pathname === '/onboarding';
 
       if (!user && !isPublicPath && !isOnboardingPath) {

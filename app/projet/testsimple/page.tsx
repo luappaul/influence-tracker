@@ -21,6 +21,15 @@ import {
   Cell,
   PieChart,
   Pie,
+  ComposedChart,
+  Line,
+  Legend,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  Radar,
+  Area,
 } from 'recharts';
 import {
   CheckCircle,
@@ -357,6 +366,7 @@ function SummaryStats({ results }: { results: { scenario: SimpleTestScenario; re
   const avgConfidence = results.reduce((sum, r) => sum + r.result.confidence.score, 0) / results.length;
   const totalDirectCodes = results.reduce((sum, r) => sum + r.result.directFromCodes, 0);
   const totalAttributed = results.reduce((sum, r) => sum + r.result.upliftFromInfluencers, 0);
+  const totalObserved = results.reduce((sum, r) => sum + r.result.observedRevenue, 0);
 
   // Vérifier combien correspondent aux attentes
   const matching = results.filter(r => {
@@ -374,53 +384,147 @@ function SummaryStats({ results }: { results: { scenario: SimpleTestScenario; re
     { name: '<30', count: results.filter(r => r.result.confidence.score < 30).length, color: '#EF4444' },
   ];
 
+  // Data pour le graphique principal
+  const chartData = results.map(({ scenario, result }) => ({
+    name: scenario.name.split(' ')[0].substring(0, 8),
+    fullName: scenario.name,
+    baseline: result.layer1.expectedRevenue24h,
+    momentum: result.layer2.expectedWithMomentum - result.layer1.expectedRevenue24h,
+    promo: result.layer3.expectedWithPromo - result.layer2.expectedWithMomentum,
+    directCode: result.directFromCodes,
+    indirect: Math.max(0, result.upliftFromInfluencers - result.directFromCodes),
+    confidence: result.confidence.score,
+    observed: result.observedRevenue,
+  }));
+
+  // Moyenne des composantes de confiance
+  const avgComponents = {
+    signal: results.reduce((sum, r) => sum + r.result.confidence.components.signalStrength, 0) / results.length * 100,
+    code: results.reduce((sum, r) => sum + r.result.confidence.components.codeEvidence, 0) / results.length * 100,
+    timing: results.reduce((sum, r) => sum + r.result.confidence.components.temporalClarity, 0) / results.length * 100,
+    confounding: results.reduce((sum, r) => sum + r.result.confidence.components.confounding, 0) / results.length * 100,
+    overlap: results.reduce((sum, r) => sum + r.result.confidence.components.overlap, 0) / results.length * 100,
+  };
+
+  const radarData = [
+    { metric: 'Signal', value: avgComponents.signal, fullMark: 100 },
+    { metric: 'Code promo', value: avgComponents.code, fullMark: 100 },
+    { metric: 'Timing', value: avgComponents.timing, fullMark: 100 },
+    { metric: 'Peu de bruit', value: avgComponents.confounding, fullMark: 100 },
+    { metric: 'Pas overlap', value: avgComponents.overlap, fullMark: 100 },
+  ];
+
   return (
     <Card className="p-6 mb-6">
       <h2 className="text-xl font-semibold text-foreground mb-4">Résultats du Stress Test</h2>
 
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      {/* KPIs */}
+      <div className="grid grid-cols-5 gap-4 mb-6">
         <div className="p-4 rounded-xl bg-background-secondary">
-          <p className="text-sm text-foreground-secondary">Scénarios testés</p>
+          <p className="text-sm text-foreground-secondary">Scénarios</p>
           <p className="text-2xl font-bold">{results.length}</p>
         </div>
         <div className="p-4 rounded-xl bg-background-secondary">
-          <p className="text-sm text-foreground-secondary">Confiance moyenne</p>
+          <p className="text-sm text-foreground-secondary">Confiance moy.</p>
           <p className={`text-2xl font-bold ${getConfidenceColor(avgConfidence)}`}>{avgConfidence.toFixed(0)}/100</p>
         </div>
         <div className="p-4 rounded-xl bg-green-500/10">
-          <p className="text-sm text-foreground-secondary">Résultats attendus</p>
+          <p className="text-sm text-foreground-secondary">Attendus OK</p>
           <p className={`text-2xl font-bold ${matching === results.length ? 'text-green-400' : 'text-yellow-400'}`}>
             {matching}/{results.length}
           </p>
         </div>
         <div className="p-4 rounded-xl bg-blue-500/10">
-          <p className="text-sm text-foreground-secondary">CA tracké via codes</p>
+          <p className="text-sm text-foreground-secondary">CA via codes</p>
           <p className="text-2xl font-bold text-blue-400">{formatCurrency(totalDirectCodes)}</p>
+        </div>
+        <div className="p-4 rounded-xl bg-purple-500/10">
+          <p className="text-sm text-foreground-secondary">CA total attribué</p>
+          <p className="text-2xl font-bold text-purple-400">{formatCurrency(totalAttributed)}</p>
         </div>
       </div>
 
-      {/* Distribution des scores */}
-      <div className="flex items-center justify-center gap-4 mb-4">
-        {distribution.map(d => (
-          <div key={d.name} className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded" style={{ backgroundColor: d.color }} />
-            <span className="text-sm text-foreground-secondary">{d.name}: {d.count}</span>
-          </div>
-        ))}
+      {/* Graphique principal - Comparaison des scénarios */}
+      <div className="mb-6">
+        <h3 className="text-sm font-medium text-foreground-secondary mb-3">Décomposition CA par scénario</h3>
+        <div className="h-[300px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-45} textAnchor="end" height={60} />
+              <YAxis yAxisId="left" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+              <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tickFormatter={(v) => `${v}`} />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px' }}
+                formatter={(value, name) => {
+                  if (name === 'Confiance') return [`${value}`, name];
+                  return [formatCurrency(value as number), name];
+                }}
+              />
+              <Legend />
+              <Bar yAxisId="left" dataKey="baseline" name="Baseline" stackId="a" fill="#6B7280" />
+              <Bar yAxisId="left" dataKey="momentum" name="Momentum" stackId="a" fill="#F59E0B" />
+              <Bar yAxisId="left" dataKey="promo" name="Promo" stackId="a" fill="#EC4899" />
+              <Bar yAxisId="left" dataKey="directCode" name="Code promo" stackId="a" fill="#10B981" />
+              <Bar yAxisId="left" dataKey="indirect" name="Indirect estimé" stackId="a" fill="#3B82F6" />
+              <Line yAxisId="right" type="monotone" dataKey="confidence" name="Confiance" stroke="#A855F7" strokeWidth={2} dot={{ fill: '#A855F7', r: 4 }} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
-      <div className="h-[60px]">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={distribution} layout="vertical">
-            <XAxis type="number" hide />
-            <YAxis type="category" dataKey="name" hide />
-            <Bar dataKey="count" radius={4}>
-              {distribution.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+      <div className="grid grid-cols-2 gap-6">
+        {/* Distribution des scores */}
+        <div>
+          <h3 className="text-sm font-medium text-foreground-secondary mb-3">Distribution des scores de confiance</h3>
+          <div className="flex items-center justify-center gap-4 mb-2">
+            {distribution.map(d => (
+              <div key={d.name} className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: d.color }} />
+                <span className="text-xs text-foreground-secondary">{d.name}: {d.count}</span>
+              </div>
+            ))}
+          </div>
+          <div className="h-[150px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={distribution}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis allowDecimals={false} />
+                <Tooltip contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px' }} />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  {distribution.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Radar des composantes moyennes */}
+        <div>
+          <h3 className="text-sm font-medium text-foreground-secondary mb-3">Composantes de confiance (moyenne)</h3>
+          <div className="h-[180px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart data={radarData}>
+                <PolarGrid stroke="#374151" />
+                <PolarAngleAxis dataKey="metric" tick={{ fontSize: 10, fill: '#9CA3AF' }} />
+                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 9 }} />
+                <Radar
+                  name="Score"
+                  dataKey="value"
+                  stroke="#10B981"
+                  fill="#10B981"
+                  fillOpacity={0.3}
+                />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-xs text-center text-foreground-secondary mt-1">
+            Code promo = composante la plus fiable
+          </p>
+        </div>
       </div>
     </Card>
   );
