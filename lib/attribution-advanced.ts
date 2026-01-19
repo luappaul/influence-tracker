@@ -733,105 +733,114 @@ export function combineConfidenceScores(
   its: ITSResult,
   causal: CausalImpactResult
 ): CombinedConfidence {
-  // === SCORES INDIVIDUELS PLUS STRICTS ===
+  // === APPROCHE ULTRA-CONSERVATIVE ===
+  // Principe: On commence à 0 et on exige des PREUVES FORTES pour monter
 
-  // DiD: exiger p < 0.01 pour haute confiance, p < 0.05 pour moyenne
+  // === 1. GATE: Effet minimum requis ===
+  // Si l'effet relatif est < 8%, on refuse d'attribuer quoi que ce soit
+  if (causal.relativeEffect < 8) {
+    return createLowConfidenceResult(did, its, causal,
+      "Effet trop faible (<8%) - indiscernable du bruit");
+  }
+
+  // === 2. GATE: Au moins une méthode doit être significative ===
+  const didSignificant = did.pValue < 0.05 && did.didEstimate > 0;
+  const itsSignificant = its.levelChangeSignificant && its.levelChange > 0 && its.rSquared > 0.2;
+  const causalSignificant = causal.probabilityCausal > 0.8 && causal.relativeEffect > 10;
+
+  const significantMethods = [didSignificant, itsSignificant, causalSignificant].filter(Boolean).length;
+
+  if (significantMethods === 0) {
+    return createLowConfidenceResult(did, its, causal,
+      "Aucune méthode n'atteint le seuil de significativité");
+  }
+
+  // === 3. SCORES INDIVIDUELS (très stricts) ===
+
+  // DiD: exiger p < 0.01 pour confiance élevée
   let didConfidence = 0;
-  if (did.pValue < 0.01 && did.didEstimate > 0) {
-    didConfidence = 80 + (0.01 - did.pValue) * 2000; // 80-100
-  } else if (did.pValue < 0.05 && did.didEstimate > 0) {
-    didConfidence = 40 + (0.05 - did.pValue) * 800; // 40-80
-  } else if (did.pValue < 0.1 && did.didEstimate > 0) {
-    didConfidence = 20 + (0.1 - did.pValue) * 400; // 20-40
-  } else {
-    didConfidence = Math.max(0, 20 - did.pValue * 20); // 0-20
+  if (did.didEstimate > 0) {
+    if (did.pValue < 0.005) {
+      didConfidence = 70 + Math.min(30, (0.005 - did.pValue) * 6000);
+    } else if (did.pValue < 0.01) {
+      didConfidence = 50 + (0.01 - did.pValue) * 4000;
+    } else if (did.pValue < 0.05) {
+      didConfidence = 20 + (0.05 - did.pValue) * 750;
+    }
   }
-  didConfidence = Math.min(100, Math.max(0, didConfidence));
 
-  // ITS: utiliser directement le score calculé (déjà strict)
-  const itsConfidence = its.confidenceScore;
+  // ITS: exiger R² > 0.3 et saut significatif
+  let itsConfidence = 0;
+  if (its.levelChange > 0 && its.levelChangeSignificant) {
+    if (its.rSquared > 0.5) {
+      itsConfidence = 50 + its.rSquared * 50;
+    } else if (its.rSquared > 0.3) {
+      itsConfidence = 30 + (its.rSquared - 0.3) * 100;
+    } else if (its.rSquared > 0.15) {
+      itsConfidence = 10 + (its.rSquared - 0.15) * 133;
+    }
+  }
 
-  // Causal Impact: plus strict, exiger > 0.8 pour haute confiance
+  // Causal: exiger probabilité > 0.85 ET effet > 12%
   let causalConfidence = 0;
-  if (causal.probabilityCausal > 0.9 && causal.relativeEffect > 10) {
-    causalConfidence = 80 + (causal.probabilityCausal - 0.9) * 200;
-  } else if (causal.probabilityCausal > 0.7 && causal.relativeEffect > 5) {
-    causalConfidence = 50 + (causal.probabilityCausal - 0.7) * 150;
-  } else if (causal.probabilityCausal > 0.5) {
-    causalConfidence = 20 + (causal.probabilityCausal - 0.5) * 150;
+  if (causal.relativeEffect > 8) {
+    if (causal.probabilityCausal > 0.95 && causal.relativeEffect > 20) {
+      causalConfidence = 80 + Math.min(20, (causal.relativeEffect - 20) * 2);
+    } else if (causal.probabilityCausal > 0.85 && causal.relativeEffect > 12) {
+      causalConfidence = 50 + (causal.probabilityCausal - 0.85) * 300;
+    } else if (causal.probabilityCausal > 0.7) {
+      causalConfidence = 20 + (causal.probabilityCausal - 0.7) * 200;
+    }
+  }
+
+  // === 4. VALIDATION CROISÉE OBLIGATOIRE ===
+  // Pour avoir > 40% de confiance, il FAUT que 2+ méthodes convergent
+  let crossValidationMultiplier = 1.0;
+  if (significantMethods >= 3) {
+    crossValidationMultiplier = 1.2; // Bonus
+  } else if (significantMethods === 2) {
+    crossValidationMultiplier = 1.0; // OK
   } else {
-    causalConfidence = causal.probabilityCausal * 40;
-  }
-  causalConfidence = Math.min(100, Math.max(0, causalConfidence));
-
-  // === VALIDATION CROISÉE: bonus si méthodes convergent ===
-  const methodsAgree = [
-    did.significant && did.didEstimate > 0,
-    its.levelChangeSignificant && its.levelChange > 0,
-    causal.probabilityCausal > 0.7 && causal.relativeEffect > 5,
-  ];
-  const numAgreeing = methodsAgree.filter(Boolean).length;
-
-  let convergenceBonus = 0;
-  if (numAgreeing === 3) {
-    convergenceBonus = 15; // Les 3 méthodes convergent
-  } else if (numAgreeing === 2) {
-    convergenceBonus = 5; // 2 méthodes convergent
-  } else if (numAgreeing === 0) {
-    convergenceBonus = -10; // Aucune méthode ne détecte
+    crossValidationMultiplier = 0.6; // Pénalité forte si une seule méthode
   }
 
-  // === PÉNALITÉ SI EFFET TROP FAIBLE ===
-  // Ne pas attribuer de confiance pour des effets < 5%
-  let smallEffectPenalty = 0;
-  if (causal.relativeEffect < 5 && causal.relativeEffect > 0) {
-    smallEffectPenalty = -15;
-  } else if (causal.relativeEffect < 10) {
-    smallEffectPenalty = -5;
-  }
-
-  // === PÉNALITÉ SI SIGNAL BRUITÉ ===
-  // Vérifier si l'intervalle de confiance est trop large
+  // === 5. PÉNALITÉ BRUIT ===
+  // Si l'intervalle de confiance est trop large, c'est suspect
   const ciWidth = causal.cumulativeEffectUpper - causal.cumulativeEffectLower;
-  const ciRelativeWidth = Math.abs(causal.cumulativeEffect) > 0
-    ? ciWidth / Math.abs(causal.cumulativeEffect)
-    : 10;
-  let noisePenalty = 0;
-  if (ciRelativeWidth > 3) {
-    noisePenalty = -15; // Intervalle très large = beaucoup d'incertitude
-  } else if (ciRelativeWidth > 2) {
-    noisePenalty = -8;
+  const effectSize = Math.abs(causal.cumulativeEffect);
+  const signalToNoise = effectSize > 0 ? effectSize / (ciWidth / 4) : 0; // SNR
+
+  let snrMultiplier = 1.0;
+  if (signalToNoise < 0.5) {
+    snrMultiplier = 0.5; // Signal très bruité
+  } else if (signalToNoise < 1) {
+    snrMultiplier = 0.7;
+  } else if (signalToNoise < 1.5) {
+    snrMultiplier = 0.85;
   }
 
-  // === SCORE COMBINÉ ===
-  const weights = [0.30, 0.35, 0.35]; // DiD, ITS, Causal
+  // === 6. SCORE COMBINÉ ===
+  const rawScore = (didConfidence * 0.30 + itsConfidence * 0.35 + causalConfidence * 0.35);
+  let combinedScore = Math.round(rawScore * crossValidationMultiplier * snrMultiplier);
 
-  let combinedScore = Math.round(
-    weights[0] * didConfidence +
-    weights[1] * itsConfidence +
-    weights[2] * causalConfidence +
-    convergenceBonus +
-    smallEffectPenalty +
-    noisePenalty
-  );
+  // Cap absolu à 70%
+  combinedScore = Math.min(70, Math.max(0, combinedScore));
 
-  // Plafonner à 75% max (sans preuve directe comme un code promo)
-  combinedScore = Math.min(75, Math.max(0, combinedScore));
-
+  // === 7. INTERPRÉTATION ===
   let interpretation: string;
-  if (combinedScore >= 65) {
-    interpretation = "Haute confiance - Les méthodes convergent vers un effet clair du post";
-  } else if (combinedScore >= 45) {
-    interpretation = "Confiance modérée - Signal détecté mais incertitude significative";
-  } else if (combinedScore >= 25) {
-    interpretation = "Confiance faible - Signal faible ou bruité, prudence recommandée";
+  if (combinedScore >= 55) {
+    interpretation = "Confiance élevée - Convergence des méthodes statistiques";
+  } else if (combinedScore >= 35) {
+    interpretation = "Confiance modérée - Signal détecté avec incertitude";
+  } else if (combinedScore >= 20) {
+    interpretation = "Confiance faible - Signal possible mais peu fiable";
   } else {
-    interpretation = "Confiance très faible - Pas assez de preuves statistiques";
+    interpretation = "Confiance très faible - Insuffisamment de preuves";
   }
 
   return {
     didConfidence: Math.round(didConfidence),
-    itsConfidence,
+    itsConfidence: Math.round(itsConfidence),
     causalConfidence: Math.round(causalConfidence),
     combinedScore,
     interpretation,
@@ -839,25 +848,46 @@ export function combineConfidenceScores(
       {
         name: "Difference-in-Differences",
         score: Math.round(didConfidence),
-        weight: weights[0],
-        explanation: did.significant
-          ? `Effet significatif (p=${did.pValue.toFixed(3)}), uplift de ${did.didEstimate.toFixed(0)}€/h`
-          : `Effet non significatif (p=${did.pValue.toFixed(3)})`,
+        weight: 0.30,
+        explanation: didSignificant
+          ? `Significatif (p=${did.pValue.toFixed(3)}), +${did.didEstimate.toFixed(0)}€/h`
+          : `Non significatif (p=${did.pValue.toFixed(2)})`,
       },
       {
         name: "Interrupted Time Series",
-        score: itsConfidence,
-        weight: weights[1],
-        explanation: its.levelChangeSignificant
-          ? `Saut de niveau: +${its.levelChange.toFixed(0)}€/h, R²=${(its.rSquared * 100).toFixed(0)}%`
-          : `Pas de changement de niveau significatif (R²=${(its.rSquared * 100).toFixed(0)}%)`,
+        score: Math.round(itsConfidence),
+        weight: 0.35,
+        explanation: itsSignificant
+          ? `Saut: +${its.levelChange.toFixed(0)}€/h, R²=${(its.rSquared * 100).toFixed(0)}%`
+          : `Pas de saut significatif (R²=${(its.rSquared * 100).toFixed(0)}%)`,
       },
       {
         name: "Causal Impact",
         score: Math.round(causalConfidence),
-        weight: weights[2],
-        explanation: `Effet: ${causal.relativeEffect.toFixed(1)}%, Prob: ${(causal.probabilityCausal * 100).toFixed(0)}%`,
+        weight: 0.35,
+        explanation: `Effet: ${causal.relativeEffect > 0 ? '+' : ''}${causal.relativeEffect.toFixed(1)}%, P=${(causal.probabilityCausal * 100).toFixed(0)}%`,
       },
+    ],
+  };
+}
+
+// Helper pour créer un résultat de faible confiance
+function createLowConfidenceResult(
+  did: DiDResult,
+  its: ITSResult,
+  causal: CausalImpactResult,
+  reason: string
+): CombinedConfidence {
+  return {
+    didConfidence: 0,
+    itsConfidence: 0,
+    causalConfidence: 0,
+    combinedScore: 0,
+    interpretation: reason,
+    methods: [
+      { name: "DiD", score: 0, weight: 0.30, explanation: `p=${did.pValue.toFixed(2)}` },
+      { name: "ITS", score: 0, weight: 0.35, explanation: `R²=${(its.rSquared * 100).toFixed(0)}%` },
+      { name: "Causal", score: 0, weight: 0.35, explanation: `Effet: ${causal.relativeEffect.toFixed(1)}%` },
     ],
   };
 }
