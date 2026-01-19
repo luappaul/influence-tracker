@@ -263,7 +263,7 @@ function calculateTimingScore(
 }
 
 /**
- * Calcule la confiance dans l'uplift global
+ * Calcule la confiance dans l'uplift global - VERSION STRICTE
  */
 function calculateUpliftConfidence(
   hourlyData: HourlyDataPoint[],
@@ -272,14 +272,30 @@ function calculateUpliftConfidence(
 ): number {
   if (influencers.length === 0) return 0;
 
-  // Facteur 1: Amplitude de l'uplift
   const totalActual = hourlyData.reduce((s, d) => s + d.revenue, 0);
   const totalBaseline = baseline.reduce((s, b) => s + b, 0);
   const upliftRatio = (totalActual - totalBaseline) / totalBaseline;
-  const amplitudeScore = Math.min(100, upliftRatio * 200); // 50% uplift = 100
 
-  // Facteur 2: Clarté du signal temporel
-  // Y a-t-il un pic clair après les posts ?
+  // === FILTRE: uplift minimum requis ===
+  // Si l'uplift est < 5%, on ne peut pas être confiant
+  if (upliftRatio < 0.05) {
+    return Math.max(0, upliftRatio * 200); // 0-10% de confiance
+  }
+
+  // Facteur 1: Amplitude de l'uplift (plus strict)
+  let amplitudeScore = 0;
+  if (upliftRatio > 0.3) { // > 30% uplift
+    amplitudeScore = 80 + Math.min(20, (upliftRatio - 0.3) * 100);
+  } else if (upliftRatio > 0.15) { // > 15% uplift
+    amplitudeScore = 50 + (upliftRatio - 0.15) * 200;
+  } else if (upliftRatio > 0.08) { // > 8% uplift
+    amplitudeScore = 25 + (upliftRatio - 0.08) * 350;
+  } else { // 5-8% uplift
+    amplitudeScore = (upliftRatio - 0.05) * 830;
+  }
+
+  // Facteur 2: Clarté du signal temporel - PLUS STRICT
+  // Exiger une hausse > 15% après le post (pas juste 10%)
   let clarityScore = 0;
   for (const inf of influencers) {
     const postHour = inf.postHour;
@@ -289,20 +305,40 @@ function calculateUpliftConfidence(
     if (windowBefore.length > 0 && windowAfter.length > 0) {
       const avgBefore = windowBefore.reduce((s, d) => s + d.revenue, 0) / windowBefore.length;
       const avgAfter = windowAfter.reduce((s, d) => s + d.revenue, 0) / windowAfter.length;
-      if (avgAfter > avgBefore * 1.1) { // Au moins 10% de hausse
+      const localUplift = (avgAfter - avgBefore) / (avgBefore || 1);
+
+      if (localUplift > 0.25) { // > 25% de hausse locale
         clarityScore += 100 / influencers.length;
+      } else if (localUplift > 0.15) { // > 15%
+        clarityScore += 70 / influencers.length;
+      } else if (localUplift > 0.08) { // > 8%
+        clarityScore += 40 / influencers.length;
       }
+      // Sinon 0 - pas de signal clair
     }
   }
 
-  // Facteur 3: Pas trop de bruit
+  // Facteur 3: Stabilité du signal (pas trop de bruit)
   const hourlyUplift = hourlyData.map((d, i) => d.revenue - baseline[i]);
   const variance = calculateVariance(hourlyUplift);
   const mean = hourlyUplift.reduce((s, u) => s + u, 0) / hourlyUplift.length;
-  const cv = Math.sqrt(variance) / (Math.abs(mean) || 1); // Coefficient de variation
-  const noiseScore = Math.max(0, 100 - cv * 50); // Moins de variance = meilleur score
+  const cv = Math.sqrt(variance) / (Math.abs(mean) || 1);
 
-  return Math.round((amplitudeScore * 0.4 + clarityScore * 0.4 + noiseScore * 0.2));
+  let noiseScore = 0;
+  if (cv < 0.5) { // Signal très stable
+    noiseScore = 100;
+  } else if (cv < 1) { // Signal assez stable
+    noiseScore = 100 - (cv - 0.5) * 100;
+  } else if (cv < 2) { // Signal bruité
+    noiseScore = 50 - (cv - 1) * 50;
+  }
+  // cv > 2 = très bruité = score 0
+
+  // Pondération finale
+  const rawScore = amplitudeScore * 0.35 + clarityScore * 0.40 + noiseScore * 0.25;
+
+  // Cap à 70% (sans preuve directe)
+  return Math.min(70, Math.max(0, Math.round(rawScore)));
 }
 
 function calculateVariance(values: number[]): number {
@@ -503,25 +539,43 @@ export function calculateITS(
     return s + Math.max(0, actual - expectedWithoutPost);
   }, 0);
 
-  // Score de confiance
-  let confidenceScore = 30; // Base
+  // Score de confiance - PLUS STRICT
+  let confidenceScore = 10; // Base basse
 
-  // Bonus si changement de niveau significatif
+  // Le changement de niveau doit être positif ET significatif
   if (levelChangeSignificant && levelChange > 0) {
-    confidenceScore += 25;
+    // Bonus proportionnel à l'amplitude du saut
+    const jumpRatio = levelChange / (baselineAvg || 1);
+    if (jumpRatio > 0.3) { // Saut > 30% de la baseline
+      confidenceScore += 35;
+    } else if (jumpRatio > 0.15) { // Saut > 15%
+      confidenceScore += 25;
+    } else if (jumpRatio > 0.08) { // Saut > 8%
+      confidenceScore += 15;
+    } else {
+      confidenceScore += 5; // Petit saut
+    }
   }
 
-  // Bonus si tendance positive après
-  if (trendChange > 0 || (trendChange > -baselineTrend && levelChange > 0)) {
-    confidenceScore += 15;
+  // Bonus si tendance positive après (mais pas trop fort)
+  if (trendChange > 0 && levelChange > 0) {
+    confidenceScore += 10;
+  } else if (trendChange > -baselineTrend * 0.5 && levelChange > 0) {
+    confidenceScore += 5; // La tendance ne s'effondre pas
   }
 
-  // Bonus si bon R²
-  if (rSquared > 0.5) confidenceScore += 15;
-  if (rSquared > 0.7) confidenceScore += 10;
+  // Bonus si bon R² - mais exiger plus
+  if (rSquared > 0.6) confidenceScore += 15;
+  else if (rSquared > 0.4) confidenceScore += 8;
+  else if (rSquared > 0.2) confidenceScore += 3;
 
-  // Cap à 75 (sans preuve directe)
-  confidenceScore = Math.min(75, Math.max(0, confidenceScore));
+  // Pénalité si R² très faible (le modèle n'explique pas bien)
+  if (rSquared < 0.1) {
+    confidenceScore -= 10;
+  }
+
+  // Cap à 70 (sans preuve directe)
+  confidenceScore = Math.min(70, Math.max(0, confidenceScore));
 
   return {
     baselineLevel,
@@ -679,40 +733,112 @@ export function combineConfidenceScores(
   its: ITSResult,
   causal: CausalImpactResult
 ): CombinedConfidence {
-  const didConfidence = Math.max(0, Math.min(100, (1 - did.pValue) * 100));
-  const itsConfidence = its.confidenceScore;
-  const causalConfidence = Math.round(causal.probabilityCausal * 100);
+  // === SCORES INDIVIDUELS PLUS STRICTS ===
 
-  // Pondération: ITS et Causal Impact sont les plus adaptés pour les séries temporelles
+  // DiD: exiger p < 0.01 pour haute confiance, p < 0.05 pour moyenne
+  let didConfidence = 0;
+  if (did.pValue < 0.01 && did.didEstimate > 0) {
+    didConfidence = 80 + (0.01 - did.pValue) * 2000; // 80-100
+  } else if (did.pValue < 0.05 && did.didEstimate > 0) {
+    didConfidence = 40 + (0.05 - did.pValue) * 800; // 40-80
+  } else if (did.pValue < 0.1 && did.didEstimate > 0) {
+    didConfidence = 20 + (0.1 - did.pValue) * 400; // 20-40
+  } else {
+    didConfidence = Math.max(0, 20 - did.pValue * 20); // 0-20
+  }
+  didConfidence = Math.min(100, Math.max(0, didConfidence));
+
+  // ITS: utiliser directement le score calculé (déjà strict)
+  const itsConfidence = its.confidenceScore;
+
+  // Causal Impact: plus strict, exiger > 0.8 pour haute confiance
+  let causalConfidence = 0;
+  if (causal.probabilityCausal > 0.9 && causal.relativeEffect > 10) {
+    causalConfidence = 80 + (causal.probabilityCausal - 0.9) * 200;
+  } else if (causal.probabilityCausal > 0.7 && causal.relativeEffect > 5) {
+    causalConfidence = 50 + (causal.probabilityCausal - 0.7) * 150;
+  } else if (causal.probabilityCausal > 0.5) {
+    causalConfidence = 20 + (causal.probabilityCausal - 0.5) * 150;
+  } else {
+    causalConfidence = causal.probabilityCausal * 40;
+  }
+  causalConfidence = Math.min(100, Math.max(0, causalConfidence));
+
+  // === VALIDATION CROISÉE: bonus si méthodes convergent ===
+  const methodsAgree = [
+    did.significant && did.didEstimate > 0,
+    its.levelChangeSignificant && its.levelChange > 0,
+    causal.probabilityCausal > 0.7 && causal.relativeEffect > 5,
+  ];
+  const numAgreeing = methodsAgree.filter(Boolean).length;
+
+  let convergenceBonus = 0;
+  if (numAgreeing === 3) {
+    convergenceBonus = 15; // Les 3 méthodes convergent
+  } else if (numAgreeing === 2) {
+    convergenceBonus = 5; // 2 méthodes convergent
+  } else if (numAgreeing === 0) {
+    convergenceBonus = -10; // Aucune méthode ne détecte
+  }
+
+  // === PÉNALITÉ SI EFFET TROP FAIBLE ===
+  // Ne pas attribuer de confiance pour des effets < 5%
+  let smallEffectPenalty = 0;
+  if (causal.relativeEffect < 5 && causal.relativeEffect > 0) {
+    smallEffectPenalty = -15;
+  } else if (causal.relativeEffect < 10) {
+    smallEffectPenalty = -5;
+  }
+
+  // === PÉNALITÉ SI SIGNAL BRUITÉ ===
+  // Vérifier si l'intervalle de confiance est trop large
+  const ciWidth = causal.cumulativeEffectUpper - causal.cumulativeEffectLower;
+  const ciRelativeWidth = Math.abs(causal.cumulativeEffect) > 0
+    ? ciWidth / Math.abs(causal.cumulativeEffect)
+    : 10;
+  let noisePenalty = 0;
+  if (ciRelativeWidth > 3) {
+    noisePenalty = -15; // Intervalle très large = beaucoup d'incertitude
+  } else if (ciRelativeWidth > 2) {
+    noisePenalty = -8;
+  }
+
+  // === SCORE COMBINÉ ===
   const weights = [0.30, 0.35, 0.35]; // DiD, ITS, Causal
 
-  const combinedScore = Math.round(
+  let combinedScore = Math.round(
     weights[0] * didConfidence +
     weights[1] * itsConfidence +
-    weights[2] * causalConfidence
+    weights[2] * causalConfidence +
+    convergenceBonus +
+    smallEffectPenalty +
+    noisePenalty
   );
 
+  // Plafonner à 75% max (sans preuve directe comme un code promo)
+  combinedScore = Math.min(75, Math.max(0, combinedScore));
+
   let interpretation: string;
-  if (combinedScore >= 70) {
-    interpretation = "Haute confiance - Les 3 méthodes détectent un signal clair après le post";
-  } else if (combinedScore >= 50) {
-    interpretation = "Confiance modérée - Signal temporel présent, corrélation probable avec le post";
-  } else if (combinedScore >= 30) {
-    interpretation = "Confiance faible - Signal faible ou contexte bruité, prudence recommandée";
+  if (combinedScore >= 65) {
+    interpretation = "Haute confiance - Les méthodes convergent vers un effet clair du post";
+  } else if (combinedScore >= 45) {
+    interpretation = "Confiance modérée - Signal détecté mais incertitude significative";
+  } else if (combinedScore >= 25) {
+    interpretation = "Confiance faible - Signal faible ou bruité, prudence recommandée";
   } else {
-    interpretation = "Confiance très faible - Pas de signal clair détecté après le post";
+    interpretation = "Confiance très faible - Pas assez de preuves statistiques";
   }
 
   return {
-    didConfidence,
+    didConfidence: Math.round(didConfidence),
     itsConfidence,
-    causalConfidence,
+    causalConfidence: Math.round(causalConfidence),
     combinedScore,
     interpretation,
     methods: [
       {
         name: "Difference-in-Differences",
-        score: didConfidence,
+        score: Math.round(didConfidence),
         weight: weights[0],
         explanation: did.significant
           ? `Effet significatif (p=${did.pValue.toFixed(3)}), uplift de ${did.didEstimate.toFixed(0)}€/h`
@@ -728,9 +854,9 @@ export function combineConfidenceScores(
       },
       {
         name: "Causal Impact",
-        score: causalConfidence,
+        score: Math.round(causalConfidence),
         weight: weights[2],
-        explanation: `Effet cumulatif: ${causal.cumulativeEffect.toFixed(0)}€ (${causal.relativeEffect.toFixed(1)}%). Prob: ${(causal.probabilityCausal * 100).toFixed(0)}%`,
+        explanation: `Effet: ${causal.relativeEffect.toFixed(1)}%, Prob: ${(causal.probabilityCausal * 100).toFixed(0)}%`,
       },
     ],
   };

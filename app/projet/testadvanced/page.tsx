@@ -102,23 +102,26 @@ export default function TestAdvancedPage() {
     // Calculer les statistiques globales
     const totalTests = results.length;
 
-    // Vrais positifs: impact > 10% ET confiance >= 50%
-    const truePositives = results.filter(r => r.trueImpact > 0.1 && r.confidence >= 50).length;
-    const truePositiveRate = results.filter(r => r.trueImpact > 0.1).length > 0
-      ? truePositives / results.filter(r => r.trueImpact > 0.1).length
-      : 0;
+    // Seuils ajustés pour le nouveau modèle plus strict
+    const CONFIDENCE_THRESHOLD = 40; // Seuil de détection
+    const HIGH_IMPACT_THRESHOLD = 0.15; // Impact considéré comme "réel"
+    const LOW_IMPACT_THRESHOLD = 0.05; // Impact considéré comme négligeable
 
-    // Faux positifs: impact < 5% MAIS confiance >= 50%
-    const falsePositives = results.filter(r => r.trueImpact < 0.05 && r.confidence >= 50).length;
-    const falsePositiveRate = results.filter(r => r.trueImpact < 0.05).length > 0
-      ? falsePositives / results.filter(r => r.trueImpact < 0.05).length
-      : 0;
+    // Vrais positifs: impact significatif ET confiance suffisante
+    const truePositives = results.filter(r => r.trueImpact >= HIGH_IMPACT_THRESHOLD && r.confidence >= CONFIDENCE_THRESHOLD).length;
+    const highImpactCount = results.filter(r => r.trueImpact >= HIGH_IMPACT_THRESHOLD).length;
+    const truePositiveRate = highImpactCount > 0 ? truePositives / highImpactCount : 0;
 
-    // Vrais négatifs: impact < 5% ET confiance < 50%
-    const trueNegatives = results.filter(r => r.trueImpact < 0.05 && r.confidence < 50).length;
+    // Faux positifs: impact faible MAIS confiance élevée
+    const falsePositives = results.filter(r => r.trueImpact < LOW_IMPACT_THRESHOLD && r.confidence >= CONFIDENCE_THRESHOLD).length;
+    const lowImpactCount = results.filter(r => r.trueImpact < LOW_IMPACT_THRESHOLD).length;
+    const falsePositiveRate = lowImpactCount > 0 ? falsePositives / lowImpactCount : 0;
 
-    // Faux négatifs: impact > 10% MAIS confiance < 50%
-    const falseNegatives = results.filter(r => r.trueImpact > 0.1 && r.confidence < 50).length;
+    // Vrais négatifs: impact faible ET confiance basse
+    const trueNegatives = results.filter(r => r.trueImpact < LOW_IMPACT_THRESHOLD && r.confidence < CONFIDENCE_THRESHOLD).length;
+
+    // Faux négatifs: impact significatif MAIS confiance basse
+    const falseNegatives = results.filter(r => r.trueImpact >= HIGH_IMPACT_THRESHOLD && r.confidence < CONFIDENCE_THRESHOLD).length;
 
     // Confiance moyenne par catégorie d'impact
     const highImpactResults = results.filter(r => r.trueImpact >= 0.3);
