@@ -4,8 +4,24 @@ import { createClient } from '@/lib/supabase/server';
 // Token de vérification - doit correspondre à celui configuré dans Facebook App
 const VERIFY_TOKEN = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || 'datafluence_webhook_2024';
 
-// Structure d'un événement de mention Instagram
-interface InstagramMentionEvent {
+// Structure d'un message Instagram (pour story mentions)
+interface InstagramMessage {
+  sender: { id: string };
+  recipient: { id: string };
+  timestamp: number;
+  message?: {
+    mid: string;
+    attachments?: Array<{
+      type: string; // 'story_mention', 'image', 'video', etc.
+      payload: {
+        url?: string; // CDN URL de la story
+      };
+    }>;
+  };
+}
+
+// Structure d'un événement de mention classique (caption/comment)
+interface InstagramMentionChange {
   field: string;
   value: {
     media_id: string;
@@ -16,25 +32,13 @@ interface InstagramMentionEvent {
 interface InstagramWebhookPayload {
   object: string;
   entry: Array<{
-    id: string; // Instagram User ID qui reçoit la mention
+    id: string; // Instagram User ID qui reçoit l'événement
     time: number;
-    changes: InstagramMentionEvent[];
+    // Pour les webhooks messaging (story mentions)
+    messaging?: InstagramMessage[];
+    // Pour les webhooks changes (mentions classiques)
+    changes?: InstagramMentionChange[];
   }>;
-}
-
-// Détails d'un média Instagram
-interface MediaDetails {
-  id: string;
-  media_type: string;
-  media_url?: string;
-  thumbnail_url?: string;
-  timestamp: string;
-  username: string;
-  caption?: string;
-  owner?: {
-    id: string;
-    username: string;
-  };
 }
 
 // GET: Vérification du webhook par Meta
@@ -50,7 +54,6 @@ export async function GET(request: NextRequest) {
   // Vérifier que c'est une requête de subscription avec le bon token
   if (mode === 'subscribe' && token === VERIFY_TOKEN) {
     console.log('[Instagram Webhook] Verification successful');
-    // Retourner le challenge pour confirmer
     return new NextResponse(challenge, { status: 200 });
   }
 
@@ -58,7 +61,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 }
 
-// POST: Réception des événements de mention
+// POST: Réception des événements
 export async function POST(request: NextRequest) {
   try {
     const payload: InstagramWebhookPayload = await request.json();
@@ -73,25 +76,22 @@ export async function POST(request: NextRequest) {
 
     // Traiter chaque entrée
     for (const entry of payload.entry) {
-      const recipientUserId = entry.id; // L'utilisateur qui a été mentionné
+      const recipientUserId = entry.id;
       const timestamp = new Date(entry.time * 1000);
 
-      for (const change of entry.changes) {
-        if (change.field === 'mentions') {
-          console.log('[Instagram Webhook] Processing mention:', {
-            recipientUserId,
-            mediaId: change.value.media_id,
-            timestamp,
-          });
+      // 1. Traiter les événements messaging (story mentions via DM)
+      if (entry.messaging) {
+        for (const message of entry.messaging) {
+          await processMessagingEvent(message, recipientUserId);
+        }
+      }
 
-          // Sauvegarder la mention dans Supabase avec les détails du média
-          await saveMention({
-            recipientUserId,
-            mediaId: change.value.media_id,
-            commentId: change.value.comment_id,
-            timestamp,
-            rawData: { entry, change },
-          });
+      // 2. Traiter les événements changes (mentions classiques)
+      if (entry.changes) {
+        for (const change of entry.changes) {
+          if (change.field === 'mentions') {
+            await processClassicMention(change, recipientUserId, timestamp);
+          }
         }
       }
     }
@@ -106,26 +106,127 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Récupérer les détails d'un média via l'API Instagram
-async function fetchMediaDetails(mediaId: string, accessToken: string): Promise<MediaDetails | null> {
-  try {
-    const response = await fetch(
-      `https://graph.instagram.com/v21.0/${mediaId}?fields=id,media_type,media_url,thumbnail_url,timestamp,username,caption,owner{id,username}&access_token=${accessToken}`
-    );
+// Traiter un événement messaging (story mention)
+async function processMessagingEvent(message: InstagramMessage, recipientUserId: string) {
+  const attachments = message.message?.attachments || [];
 
-    if (!response.ok) {
-      console.log('[Instagram Webhook] Could not fetch media details:', await response.text());
-      return null;
+  for (const attachment of attachments) {
+    if (attachment.type === 'story_mention') {
+      console.log('[Instagram Webhook] Story mention received:', {
+        from: message.sender.id,
+        to: recipientUserId,
+        cdnUrl: attachment.payload.url,
+        messageId: message.message?.mid,
+      });
+
+      // Sauvegarder la mention de story
+      await saveStoryMention({
+        recipientUserId,
+        senderId: message.sender.id,
+        messageId: message.message?.mid || '',
+        cdnUrl: attachment.payload.url || '',
+        timestamp: new Date(message.timestamp),
+      });
     }
-
-    return await response.json();
-  } catch (error) {
-    console.error('[Instagram Webhook] Error fetching media:', error);
-    return null;
   }
 }
 
-// Sauvegarder une mention dans Supabase
+// Traiter une mention classique (caption/comment)
+async function processClassicMention(
+  change: InstagramMentionChange,
+  recipientUserId: string,
+  timestamp: Date
+) {
+  console.log('[Instagram Webhook] Classic mention:', {
+    recipientUserId,
+    mediaId: change.value.media_id,
+    timestamp,
+  });
+
+  await saveMention({
+    recipientUserId,
+    mediaId: change.value.media_id,
+    commentId: change.value.comment_id,
+    timestamp,
+    rawData: change,
+  });
+}
+
+// Sauvegarder une mention de story (via messaging)
+async function saveStoryMention(data: {
+  recipientUserId: string;
+  senderId: string;
+  messageId: string;
+  cdnUrl: string;
+  timestamp: Date;
+}) {
+  try {
+    const supabase = await createClient();
+
+    // Chercher l'utilisateur qui correspond à ce recipientUserId
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id, instagram_username, instagram_access_token')
+      .eq('instagram_user_id', data.recipientUserId)
+      .single();
+
+    if (!profile) {
+      console.log('[Instagram Webhook] No user found for Instagram ID:', data.recipientUserId);
+      return;
+    }
+
+    // Récupérer les infos du sender (qui a fait la story)
+    let senderUsername: string | null = null;
+    if (profile.instagram_access_token) {
+      try {
+        const response = await fetch(
+          `https://graph.instagram.com/v21.0/${data.senderId}?fields=username&access_token=${profile.instagram_access_token}`
+        );
+        if (response.ok) {
+          const senderData = await response.json();
+          senderUsername = senderData.username;
+          console.log('[Instagram Webhook] Sender username:', senderUsername);
+        }
+      } catch (e) {
+        console.log('[Instagram Webhook] Could not fetch sender info');
+      }
+    }
+
+    // Calculer l'expiration (stories = 24h)
+    const expiresAt = new Date(data.timestamp.getTime() + 24 * 60 * 60 * 1000).toISOString();
+
+    // Insérer la mention
+    const { error } = await supabase.from('instagram_mentions').insert({
+      user_id: profile.id,
+      instagram_user_id: data.recipientUserId,
+      media_id: data.messageId, // On utilise messageId comme identifiant unique
+      media_type: 'story',
+      media_url: data.cdnUrl,
+      mentioned_by_user_id: data.senderId,
+      mentioned_by_username: senderUsername,
+      received_at: data.timestamp.toISOString(),
+      expires_at: expiresAt,
+      processed: false,
+      raw_webhook_data: {
+        type: 'story_mention',
+        senderId: data.senderId,
+        messageId: data.messageId,
+        cdnUrl: data.cdnUrl,
+      },
+    });
+
+    if (error) {
+      console.log('[Instagram Webhook] Could not save story mention:', error.message);
+    } else {
+      console.log('[Instagram Webhook] Story mention saved successfully');
+    }
+
+  } catch (error) {
+    console.error('[Instagram Webhook] Error saving story mention:', error);
+  }
+}
+
+// Sauvegarder une mention classique (caption/comment)
 async function saveMention(data: {
   recipientUserId: string;
   mediaId: string;
@@ -148,26 +249,35 @@ async function saveMention(data: {
       return;
     }
 
-    // Récupérer les détails du média (image/vidéo, qui l'a posté)
-    let mediaDetails: MediaDetails | null = null;
+    // Récupérer les détails du média
+    let mediaDetails: any = null;
     if (profile.instagram_access_token) {
-      mediaDetails = await fetchMediaDetails(data.mediaId, profile.instagram_access_token);
-      console.log('[Instagram Webhook] Media details:', mediaDetails);
+      try {
+        const response = await fetch(
+          `https://graph.instagram.com/v21.0/${data.mediaId}?fields=id,media_type,media_url,thumbnail_url,timestamp,username,caption,owner{id,username}&access_token=${profile.instagram_access_token}`
+        );
+        if (response.ok) {
+          mediaDetails = await response.json();
+          console.log('[Instagram Webhook] Media details:', mediaDetails);
+        }
+      } catch (e) {
+        console.log('[Instagram Webhook] Could not fetch media details');
+      }
     }
 
-    // Calculer l'expiration (stories = 24h après création)
+    // Calculer l'expiration si c'est une story
     let expiresAt: string | null = null;
-    if (mediaDetails?.media_type === 'STORY' || mediaDetails?.media_type === 'story') {
+    if (mediaDetails?.media_type?.toLowerCase() === 'story') {
       const mediaTime = new Date(mediaDetails.timestamp);
       expiresAt = new Date(mediaTime.getTime() + 24 * 60 * 60 * 1000).toISOString();
     }
 
-    // Insérer la mention dans la table instagram_mentions
+    // Insérer la mention
     const { error } = await supabase.from('instagram_mentions').insert({
       user_id: profile.id,
       instagram_user_id: data.recipientUserId,
       media_id: data.mediaId,
-      media_type: mediaDetails?.media_type?.toLowerCase() || 'story',
+      media_type: mediaDetails?.media_type?.toLowerCase() || 'post',
       media_url: mediaDetails?.media_url || null,
       media_thumbnail_url: mediaDetails?.thumbnail_url || null,
       mentioned_by_user_id: mediaDetails?.owner?.id || null,
@@ -181,10 +291,9 @@ async function saveMention(data: {
     });
 
     if (error) {
-      // Si la table n'existe pas, log l'erreur mais ne pas crasher
-      console.log('[Instagram Webhook] Could not save mention (table may not exist):', error.message);
+      console.log('[Instagram Webhook] Could not save mention:', error.message);
     } else {
-      console.log('[Instagram Webhook] Mention saved successfully with media details');
+      console.log('[Instagram Webhook] Mention saved successfully');
     }
 
   } catch (error) {
