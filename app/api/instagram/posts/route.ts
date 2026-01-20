@@ -1,10 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getInstagramPosts } from '@/lib/apify';
+import { getInstagramPosts, ApifyInstagramPost } from '@/lib/apify';
+
+// Détecte si un post mentionne la marque
+function detectMention(post: ApifyInstagramPost, brandUsername: string | null, brandName: string | null): boolean | null {
+  if (!brandUsername && !brandName) {
+    return null; // Pas de marque configurée, on ne peut pas détecter
+  }
+
+  const caption = (post.caption || '').toLowerCase();
+
+  // Vérifier @mention
+  if (brandUsername) {
+    const mentionPattern = new RegExp(`@${brandUsername.toLowerCase()}\\b`, 'i');
+    if (mentionPattern.test(caption)) {
+      return true;
+    }
+  }
+
+  // Vérifier le nom de la marque (mots de 4+ caractères)
+  if (brandName) {
+    const brandWords = brandName.toLowerCase().split(/\s+/).filter(w => w.length >= 4);
+    for (const word of brandWords) {
+      if (caption.includes(word)) {
+        return true;
+      }
+    }
+  }
+
+  return null; // Pas de mention détectée, mais pourrait être positif manuellement
+}
 
 export async function GET(request: NextRequest) {
   const username = request.nextUrl.searchParams.get('username');
   const startDateParam = request.nextUrl.searchParams.get('startDate');
   const endDateParam = request.nextUrl.searchParams.get('endDate');
+  const brandUsername = request.nextUrl.searchParams.get('brandUsername'); // Instagram de la marque
+  const brandName = request.nextUrl.searchParams.get('brandName'); // Nom de la marque
 
   if (!username) {
     return NextResponse.json(
@@ -59,9 +90,15 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Auto-détecter les mentions de la marque
+    const postsWithMentions = filteredPosts.map((post) => ({
+      ...post,
+      mentionsProduct: detectMention(post, brandUsername, brandName),
+    }));
+
     return NextResponse.json({
-      posts: filteredPosts,
-      total: filteredPosts.length,
+      posts: postsWithMentions,
+      total: postsWithMentions.length,
       fetched: posts.length,
       limit: smartLimit,
       warning,

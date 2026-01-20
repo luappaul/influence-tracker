@@ -249,6 +249,23 @@ export default function CampaignDetailPage() {
     });
   };
 
+  // Récupérer les infos Instagram de la marque depuis localStorage
+  const getBrandInfo = (): { brandUsername: string | null; brandName: string | null } => {
+    try {
+      const instagramData = localStorage.getItem('instagram-connection');
+      if (instagramData) {
+        const parsed = JSON.parse(instagramData);
+        return {
+          brandUsername: parsed.username || null,
+          brandName: null // On pourrait aussi utiliser le companyName de l'user
+        };
+      }
+    } catch (e) {
+      console.error('Error reading Instagram data:', e);
+    }
+    return { brandUsername: null, brandName: null };
+  };
+
   const scrapePosts = async (influencer: CampaignInfluencer) => {
     if (!campaign || !influencer.campaignStartDate || !influencer.campaignDays) return;
 
@@ -259,10 +276,15 @@ export default function CampaignDetailPage() {
       const endDate = new Date(startDate);
       endDate.setDate(endDate.getDate() + influencer.campaignDays);
 
-      // L'API calcule automatiquement le nombre optimal de posts à récupérer
-      const response = await fetch(
-        `/api/instagram/posts?username=${encodeURIComponent(influencer.username)}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`
-      );
+      // Récupérer les infos de la marque pour la détection automatique
+      const { brandUsername, brandName } = getBrandInfo();
+
+      // Construire l'URL avec les paramètres de détection de mention
+      let url = `/api/instagram/posts?username=${encodeURIComponent(influencer.username)}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`;
+      if (brandUsername) url += `&brandUsername=${encodeURIComponent(brandUsername)}`;
+      if (brandName) url += `&brandName=${encodeURIComponent(brandName)}`;
+
+      const response = await fetch(url);
       const data = await response.json();
 
       // Afficher le warning si la campagne est ancienne
@@ -290,49 +312,6 @@ export default function CampaignDetailPage() {
     } catch (error) {
       console.error('Scraping error:', error);
       alert('Erreur lors du scraping des posts');
-    } finally {
-      setScrapingInfluencer(null);
-    }
-  };
-
-  // TEST: Récupère les 5 derniers posts sans filtrer par date (à supprimer après)
-  const scrapeTestPosts = async (influencer: CampaignInfluencer) => {
-    if (!campaign) return;
-
-    setScrapingInfluencer(influencer.username);
-
-    try {
-      // Récupère les posts récents (l'API retourne déjà triés par date décroissante)
-      const response = await fetch(
-        `/api/instagram/posts?username=${encodeURIComponent(influencer.username)}`
-      );
-      const data = await response.json();
-
-      // Trier par date décroissante (plus récent en premier) et prendre les 5 premiers
-      const sortedPosts = (data.posts || []).sort((a: ScrapedPost, b: ScrapedPost) => {
-        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-      });
-      const latestPosts = sortedPosts.slice(0, 5);
-
-      const updatedInfluencers = campaign.influencers.map((i) =>
-        i.username === influencer.username
-          ? {
-              ...i,
-              scrapedPosts: latestPosts,
-              lastScrapedAt: new Date().toISOString(),
-            }
-          : i
-      );
-
-      saveCampaign({
-        ...campaign,
-        influencers: updatedInfluencers,
-      });
-
-      setExpandedInfluencers((prev) => new Set([...prev, influencer.username]));
-    } catch (error) {
-      console.error('Test scraping error:', error);
-      alert('Erreur lors du scraping test');
     } finally {
       setScrapingInfluencer(null);
     }
@@ -730,12 +709,12 @@ export default function CampaignDetailPage() {
           <div className="space-y-2">
             {/* Header de la grille - masqué sur mobile */}
             <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-sm font-medium text-foreground-secondary">
-              <div className={isLocked ? "col-span-2" : "col-span-3"}>Influenceur</div>
+              <div className="col-span-2">Influenceur</div>
               <div className="col-span-1 text-center">Followers</div>
-              <div className="col-span-1 text-center">Budget</div>
-              <div className={isLocked ? "col-span-2" : "col-span-2"}>Début</div>
+              <div className="col-span-2 text-center">Budget</div>
+              <div className="col-span-2">Début</div>
               <div className="col-span-1 text-center">Durée</div>
-              {isLocked && <div className="col-span-3 text-center">Lien collab</div>}
+              {isLocked && <div className="col-span-2 text-center">Lien collab</div>}
               <div className="col-span-2 text-center">Posts</div>
               {!isLocked && <div className="col-span-2"></div>}
             </div>
@@ -755,7 +734,7 @@ export default function CampaignDetailPage() {
                     }`}
                   >
                     {/* Influenceur */}
-                    <div className={`${isLocked ? 'col-span-2' : 'col-span-3'} flex items-center gap-3`}>
+                    <div className="col-span-2 flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center overflow-hidden relative">
                         {influencer.profilePicUrl ? (
                           <img
@@ -797,14 +776,14 @@ export default function CampaignDetailPage() {
                     </div>
 
                     {/* Budget */}
-                    <div className="col-span-1 text-center">
+                    <div className="col-span-2 text-center">
                       {isLocked ? (
                         <span className="text-foreground text-sm font-medium">
                           {influencer.budget.toLocaleString('fr-FR')} €
                         </span>
                       ) : (
-                        <div className="relative">
-                          <Euro className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-foreground-secondary" />
+                        <div className="relative max-w-[120px] mx-auto">
+                          <Euro className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-foreground-secondary" />
                           <Input
                             type="number"
                             placeholder="0"
@@ -815,7 +794,7 @@ export default function CampaignDetailPage() {
                                 parseFloat(e.target.value) || 0
                               )
                             }
-                            className="pl-7 text-center text-sm h-8"
+                            className="pl-8 text-center text-sm h-9"
                           />
                         </div>
                       )}
@@ -868,7 +847,7 @@ export default function CampaignDetailPage() {
 
                     {/* Lien collab (seulement si verrouillé) */}
                     {isLocked && (
-                      <div className="col-span-3 flex items-center justify-center gap-2">
+                      <div className="col-span-2 flex items-center justify-center gap-2">
                         {influencer.collabToken ? (
                           <>
                             <Button
@@ -906,46 +885,35 @@ export default function CampaignDetailPage() {
                       </div>
                     )}
 
-                    {/* Posts & Scrape */}
-                    <div className="col-span-2 flex items-center justify-center gap-1">
+                    {/* Posts & Refresh */}
+                    <div className="col-span-2 flex items-center justify-center gap-2">
                       <Button
                         size="sm"
                         variant="secondary"
                         onClick={() => scrapePosts(influencer)}
                         disabled={isScraping}
-                        className="h-7 text-xs px-2"
-                        title="Scraper les posts de la période"
+                        className="h-7 w-7 p-0"
+                        title="Actualiser les posts"
                       >
                         {isScraping ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : (
-                          <RefreshCw className="w-3 h-3" />
+                          <RefreshCw className="w-3.5 h-3.5" />
                         )}
                       </Button>
-                      {/* TEST BUTTON - À SUPPRIMER */}
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => scrapeTestPosts(influencer)}
-                        disabled={isScraping}
-                        className="h-7 text-xs px-2 bg-warning/20 hover:bg-warning/30 text-warning"
-                        title="TEST: 5 derniers posts"
+                      <button
+                        onClick={() => postsCount > 0 && toggleExpand(influencer.username)}
+                        className={`flex items-center gap-1 text-sm ${postsCount > 0 ? 'text-accent hover:underline cursor-pointer' : 'text-foreground-secondary cursor-default'}`}
                       >
-                        Test
-                      </Button>
-                      {postsCount > 0 && (
-                        <button
-                          onClick={() => toggleExpand(influencer.username)}
-                          className="flex items-center gap-1 text-sm text-accent hover:underline"
-                        >
-                          {postsCount}
-                          {isExpanded ? (
+                        <span className="font-medium">{postsCount}</span>
+                        {postsCount > 0 && (
+                          isExpanded ? (
                             <ChevronUp className="w-4 h-4" />
                           ) : (
                             <ChevronDown className="w-4 h-4" />
-                          )}
-                        </button>
-                      )}
+                          )
+                        )}
+                      </button>
                     </div>
 
                     {/* Actions (seulement si non verrouillé) */}
@@ -1226,14 +1194,14 @@ export default function CampaignDetailPage() {
 
             {/* Total - Desktop */}
             <div className="hidden md:grid grid-cols-12 gap-4 items-center px-4 py-3 border-t border-border mt-2">
-              <div className={`${isLocked ? 'col-span-2' : 'col-span-3'} font-medium text-foreground`}>Total</div>
+              <div className="col-span-2 font-medium text-foreground">Total</div>
               <div className="col-span-1 text-center font-medium text-foreground">
                 {formatNumber(totalFollowers)}
               </div>
-              <div className="col-span-1 text-center font-semibold text-foreground">
+              <div className="col-span-2 text-center font-semibold text-foreground">
                 {campaign.totalBudget.toLocaleString('fr-FR')} €
               </div>
-              <div className={isLocked ? "col-span-6" : "col-span-5"}></div>
+              <div className={isLocked ? "col-span-5" : "col-span-5"}></div>
               <div className="col-span-2 text-center font-medium text-foreground">
                 {totalPosts} posts
               </div>
