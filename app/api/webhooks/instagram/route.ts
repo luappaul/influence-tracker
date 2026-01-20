@@ -186,21 +186,67 @@ async function saveStoryMention(data: {
     let userId = profile?.id || null;
     let senderUsername: string | null = null;
 
-    // Récupérer les infos du sender (qui a fait la story)
+    // Essayer de récupérer le username via l'API Conversations
     if (profile?.instagram_access_token) {
       try {
-        const response = await fetch(
-          `https://graph.instagram.com/v21.0/${data.senderId}?fields=username&access_token=${profile.instagram_access_token}`
+        // Utiliser l'API Conversations pour récupérer les infos du participant
+        const convResponse = await fetch(
+          `https://graph.instagram.com/v21.0/me/conversations?fields=participants&user_id=${data.senderId}&access_token=${profile.instagram_access_token}`
         );
-        if (response.ok) {
-          const senderData = await response.json();
-          senderUsername = senderData.username;
-          console.log('[Instagram Webhook] Sender username:', senderUsername);
-        } else {
-          console.log('[Instagram Webhook] Could not fetch sender, status:', response.status);
+        if (convResponse.ok) {
+          const convData = await convResponse.json();
+          console.log('[Instagram Webhook] Conversation data:', JSON.stringify(convData, null, 2));
+          // Chercher le participant qui correspond au senderId
+          const conversations = convData.data || [];
+          for (const conv of conversations) {
+            const participant = conv.participants?.data?.find((p: any) => p.id === data.senderId);
+            if (participant?.username) {
+              senderUsername = participant.username;
+              console.log('[Instagram Webhook] Found sender username from conversation:', senderUsername);
+              break;
+            }
+          }
         }
       } catch (e) {
-        console.log('[Instagram Webhook] Could not fetch sender info:', e);
+        console.log('[Instagram Webhook] Could not fetch conversation info:', e);
+      }
+    }
+
+    // Auto-association : chercher si cet influenceur est dans une campagne
+    let autoAssignedCampaignId: string | null = null;
+    let autoAssignedInfluencer: string | null = null;
+
+    if (senderUsername && userId) {
+      try {
+        // Récupérer les campagnes de l'utilisateur
+        const { data: campaignsData } = await supabase
+          .from('campaigns')
+          .select('id, data')
+          .eq('user_id', userId);
+
+        if (campaignsData) {
+          for (const campaign of campaignsData) {
+            const campaignData = campaign.data as any;
+            const influencers = campaignData?.influencers || [];
+
+            // Chercher si le sender est un influenceur de cette campagne
+            const matchedInfluencer = influencers.find(
+              (inf: any) => inf.username?.toLowerCase() === senderUsername?.toLowerCase()
+            );
+
+            if (matchedInfluencer) {
+              autoAssignedCampaignId = campaign.id;
+              autoAssignedInfluencer = matchedInfluencer.username;
+              console.log('[Instagram Webhook] Auto-assigned to campaign:', {
+                campaignId: autoAssignedCampaignId,
+                influencer: autoAssignedInfluencer,
+              });
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        console.log('[Instagram Webhook] Could not auto-assign to campaign:', e);
       }
     }
 
@@ -217,7 +263,10 @@ async function saveStoryMention(data: {
       mentioned_by_username: senderUsername,
       received_at: data.timestamp.toISOString(),
       expires_at: expiresAt,
-      processed: false,
+      processed: autoAssignedCampaignId ? true : false,
+      campaign_id: autoAssignedCampaignId,
+      influencer_username: autoAssignedInfluencer,
+      mentions_product: autoAssignedCampaignId ? true : null,
       raw_webhook_data: {
         type: 'story_mention',
         senderId: data.senderId,
