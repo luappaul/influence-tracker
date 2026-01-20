@@ -1077,7 +1077,12 @@ export default function CampaignDetailPage() {
               const isScraping = scrapingInfluencer === influencer.username;
               const postsCount = influencer.scrapedPosts?.length || 0;
               const storiesCount = influencer.scrapedStories?.length || 0;
-              const totalContentCount = postsCount + storiesCount;
+              // Mentions assignées à cet influenceur
+              const influencerMentions = mentions.filter(
+                m => m.influencer_username?.toLowerCase() === influencer.username.toLowerCase()
+              );
+              const mentionsCount = influencerMentions.length;
+              const totalContentCount = postsCount + storiesCount + mentionsCount;
 
               return (
                 <div key={influencer.username} className="space-y-0">
@@ -1264,6 +1269,9 @@ export default function CampaignDetailPage() {
                           {storiesCount > 0 && (
                             <span className="text-xs text-info">+{storiesCount}s</span>
                           )}
+                          {mentionsCount > 0 && (
+                            <span className="text-xs text-success">+{mentionsCount}m</span>
+                          )}
                           {isExpanded ? (
                             <ChevronUp className="w-4 h-4" />
                           ) : (
@@ -1366,12 +1374,12 @@ export default function CampaignDetailPage() {
                     </div>
                   </div>
 
-                  {/* Contenu expandé - Posts + Stories */}
-                  {isExpanded && (postsCount > 0 || storiesCount > 0) && (
+                  {/* Contenu expandé - Posts + Stories + Mentions */}
+                  {isExpanded && (postsCount > 0 || storiesCount > 0 || mentionsCount > 0) && (
                     <div className="bg-background-secondary/50 rounded-b-lg p-4 border-t border-border/30">
                       <div className="flex items-center justify-between mb-3">
                         <p className="text-sm text-foreground-secondary">
-                          {postsCount} posts{storiesCount > 0 && ` + ${storiesCount} stories`}
+                          {postsCount} posts{storiesCount > 0 && ` + ${storiesCount} stories`}{mentionsCount > 0 && ` + ${mentionsCount} mentions`}
                         </p>
                         {influencer.lastScrapedAt && (
                           <p className="text-xs text-foreground-secondary">
@@ -1379,6 +1387,65 @@ export default function CampaignDetailPage() {
                           </p>
                         )}
                       </div>
+
+                      {/* Section Mentions (stories reçues via webhook) */}
+                      {mentionsCount > 0 && (
+                        <div className="mb-4">
+                          <p className="text-xs font-medium text-success mb-2 flex items-center gap-1">
+                            <AtSign className="w-3 h-3" /> Mentions reçues ({mentionsCount})
+                          </p>
+                          <div className="flex gap-3 overflow-x-auto pb-2">
+                            {influencerMentions.map((mention) => {
+                              const isExpired = mention.expires_at && new Date(mention.expires_at) < new Date();
+                              const hoursLeft = mention.expires_at
+                                ? Math.max(0, Math.round((new Date(mention.expires_at).getTime() - Date.now()) / (1000 * 60 * 60)))
+                                : null;
+
+                              return (
+                                <div key={mention.id} className="flex-shrink-0 w-20">
+                                  <div className={`relative w-20 h-28 rounded-lg overflow-hidden bg-background border-2 border-success/30 ${isExpired ? 'opacity-50' : ''}`}>
+                                    {mention.media_url ? (
+                                      <img
+                                        src={mention.media_url}
+                                        alt=""
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          (e.target as HTMLImageElement).style.display = 'none';
+                                        }}
+                                      />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-b from-success/20 to-success/5">
+                                        <AtSign className="w-6 h-6 text-success" />
+                                      </div>
+                                    )}
+                                    {/* Badge "mention" */}
+                                    <div className="absolute top-1 left-1">
+                                      <span className="w-4 h-4 bg-success rounded-full flex items-center justify-center">
+                                        <AtSign className="w-2.5 h-2.5 text-white" />
+                                      </span>
+                                    </div>
+                                    {/* Expiration countdown */}
+                                    {hoursLeft !== null && !isExpired && (
+                                      <div className="absolute bottom-1 left-1 right-1 text-[10px] text-white bg-black/60 rounded px-1 py-0.5 flex items-center gap-0.5 justify-center">
+                                        <Clock className="w-2.5 h-2.5" />
+                                        {hoursLeft}h
+                                      </div>
+                                    )}
+                                    {isExpired && (
+                                      <div className="absolute bottom-1 left-1 right-1 text-[10px] text-white bg-danger/80 rounded px-1 py-0.5 text-center">
+                                        Expirée
+                                      </div>
+                                    )}
+                                  </div>
+                                  <p className="text-[10px] text-foreground-secondary text-center mt-1 truncate">
+                                    {new Date(mention.received_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                                  </p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Section Stories (si présentes) */}
                       {storiesCount > 0 && (
