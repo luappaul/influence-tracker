@@ -19,6 +19,7 @@ interface MentionedMedia {
 // GET: Récupérer les médias où l'utilisateur est mentionné
 export async function GET(request: NextRequest) {
   const accessToken = request.nextUrl.searchParams.get('access_token');
+  const userId = request.nextUrl.searchParams.get('user_id');
 
   if (!accessToken) {
     return NextResponse.json(
@@ -28,10 +29,31 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // D'abord récupérer l'ID utilisateur si non fourni
+    let igUserId = userId;
+    if (!igUserId) {
+      const meResponse = await fetch(
+        `https://graph.instagram.com/v21.0/me?fields=id,username&access_token=${accessToken}`
+      );
+      if (meResponse.ok) {
+        const meData = await meResponse.json();
+        igUserId = meData.id;
+        console.log('[Mentioned Media] Got user ID:', igUserId);
+      }
+    }
+
+    if (!igUserId) {
+      return NextResponse.json(
+        { error: 'Impossible de récupérer l\'ID utilisateur Instagram' },
+        { status: 400 }
+      );
+    }
+
     // Appeler l'API Instagram pour récupérer les médias mentionnés
     // Documentation: https://developers.facebook.com/docs/instagram-api/reference/ig-user/mentioned_media
+    // Note: Nécessite un compte Business/Creator et la permission instagram_manage_comments
     const response = await fetch(
-      `https://graph.instagram.com/v21.0/me/mentioned_media?fields=id,media_type,media_url,thumbnail_url,caption,timestamp,permalink,username,owner{id,username}&access_token=${accessToken}`
+      `https://graph.instagram.com/v21.0/${igUserId}/mentioned_media?fields=id,media_type,media_url,thumbnail_url,caption,timestamp,permalink,username,owner{id,username}&access_token=${accessToken}`
     );
 
     if (!response.ok) {

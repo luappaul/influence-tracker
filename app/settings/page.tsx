@@ -72,9 +72,13 @@ export default function SettingsPage() {
     setMentionsError(null);
 
     try {
-      const response = await fetch(
-        `/api/instagram/mentioned-media?access_token=${encodeURIComponent(instagramConnection.access_token)}`
-      );
+      const params = new URLSearchParams({
+        access_token: instagramConnection.access_token,
+      });
+      if (instagramConnection.user_id) {
+        params.append('user_id', instagramConnection.user_id);
+      }
+      const response = await fetch(`/api/instagram/mentioned-media?${params.toString()}`);
       const data = await response.json();
 
       if (!response.ok) {
