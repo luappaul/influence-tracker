@@ -110,6 +110,20 @@ interface SearchResult {
   followers_count: number;
 }
 
+interface StoryMention {
+  id: string;
+  media_id: string;
+  media_type: string;
+  media_url: string;
+  mentioned_by_username: string | null;
+  mentioned_by_user_id: string | null;
+  received_at: string;
+  expires_at: string | null;
+  processed: boolean;
+  campaign_id: string | null;
+  influencer_username: string | null;
+}
+
 export default function CampaignDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -127,8 +141,65 @@ export default function CampaignDetailPage() {
   const [expandedInfluencers, setExpandedInfluencers] = useState<Set<string>>(new Set());
   const [scrapingInfluencer, setScrapingInfluencer] = useState<string | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const [mentions, setMentions] = useState<StoryMention[]>([]);
+  const [mentionsLoading, setMentionsLoading] = useState(false);
 
   const isLocked = campaign?.locked ?? false;
+
+  // Récupérer les mentions depuis l'API
+  const fetchMentions = async () => {
+    setMentionsLoading(true);
+    try {
+      const response = await fetch(`/api/instagram/mentions?campaign_id=${campaignId}`);
+      const data = await response.json();
+      // Inclure aussi les mentions non assignées
+      const allMentionsResponse = await fetch('/api/instagram/mentions?unprocessed=true');
+      const allMentionsData = await allMentionsResponse.json();
+
+      // Combiner les mentions de cette campagne + les mentions non traitées
+      const combinedMentions = [
+        ...(data.mentions || []),
+        ...(allMentionsData.mentions || []).filter(
+          (m: StoryMention) => !data.mentions?.some((cm: StoryMention) => cm.id === m.id)
+        ),
+      ];
+      setMentions(combinedMentions);
+    } catch (error) {
+      console.error('Error fetching mentions:', error);
+    } finally {
+      setMentionsLoading(false);
+    }
+  };
+
+  // Associer une mention à un influenceur de la campagne
+  const assignMentionToInfluencer = async (mentionId: string, influencerUsername: string) => {
+    try {
+      const response = await fetch('/api/instagram/mentions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mentionId,
+          campaignId,
+          influencerUsername,
+          mentionsProduct: true,
+        }),
+      });
+
+      if (response.ok) {
+        // Refresh mentions
+        fetchMentions();
+      }
+    } catch (error) {
+      console.error('Error assigning mention:', error);
+    }
+  };
+
+  // Charger les mentions au montage
+  useEffect(() => {
+    if (campaignId) {
+      fetchMentions();
+    }
+  }, [campaignId]);
 
   const copyCollabLink = async (token: string) => {
     const link = `${window.location.origin}/collab/${token}`;
@@ -743,6 +814,134 @@ export default function CampaignDetailPage() {
           </div>
         </Card>
       </div>
+
+      {/* Mentions reçues (Stories) */}
+      {mentions.length > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <CardTitle>Mentions reçues</CardTitle>
+              <Badge className="bg-accent/10 text-accent">{mentions.length}</Badge>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={fetchMentions}
+              disabled={mentionsLoading}
+            >
+              {mentionsLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            {mentions.map((mention) => {
+              const isExpired = mention.expires_at && new Date(mention.expires_at) < new Date();
+              const hoursLeft = mention.expires_at
+                ? Math.max(0, Math.round((new Date(mention.expires_at).getTime() - Date.now()) / (1000 * 60 * 60)))
+                : null;
+
+              return (
+                <div
+                  key={mention.id}
+                  className={`relative rounded-lg overflow-hidden bg-background-secondary ${
+                    isExpired ? 'opacity-50' : ''
+                  }`}
+                >
+                  {/* Story image */}
+                  <div className="aspect-[9/16] relative">
+                    {mention.media_url ? (
+                      <img
+                        src={mention.media_url}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-b from-accent/20 to-accent/5">
+                        <Circle className="w-8 h-8 text-accent" />
+                      </div>
+                    )}
+
+                    {/* Overlay info */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+
+                    {/* Username */}
+                    <div className="absolute bottom-2 left-2 right-2">
+                      <p className="text-white text-xs font-medium truncate">
+                        @{mention.mentioned_by_username || 'inconnu'}
+                      </p>
+                      <p className="text-white/70 text-[10px]">
+                        {new Date(mention.received_at).toLocaleDateString('fr-FR', {
+                          day: 'numeric',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </p>
+                    </div>
+
+                    {/* Expiration badge */}
+                    {hoursLeft !== null && !isExpired && (
+                      <div className="absolute top-2 right-2 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">
+                        <Clock className="w-2.5 h-2.5" />
+                        {hoursLeft}h
+                      </div>
+                    )}
+
+                    {isExpired && (
+                      <div className="absolute top-2 right-2 bg-danger/80 text-white text-[10px] px-1.5 py-0.5 rounded">
+                        Expirée
+                      </div>
+                    )}
+
+                    {/* Assigned badge */}
+                    {mention.influencer_username && (
+                      <div className="absolute top-2 left-2 bg-success/80 text-white text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">
+                        <Check className="w-2.5 h-2.5" />
+                        {mention.influencer_username}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  {!mention.influencer_username && campaign.influencers.length > 0 && (
+                    <div className="p-2">
+                      <select
+                        className="w-full text-xs bg-background border border-border rounded px-2 py-1"
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            assignMentionToInfluencer(mention.id, e.target.value);
+                          }
+                        }}
+                        defaultValue=""
+                      >
+                        <option value="">Associer à...</option>
+                        {campaign.influencers.map((inf) => (
+                          <option key={inf.username} value={inf.username}>
+                            @{inf.username}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {mentions.length === 0 && !mentionsLoading && (
+            <p className="text-sm text-foreground-secondary text-center py-4">
+              Aucune mention reçue pour le moment
+            </p>
+          )}
+        </Card>
+      )}
 
       {/* Influenceurs */}
       <Card>
