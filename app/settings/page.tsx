@@ -1,20 +1,50 @@
 'use client';
 
-import { useState } from 'react';
-import { Check, ShoppingBag, Instagram, Clock, AlertTriangle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Check, ShoppingBag, Instagram, Clock, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { Card, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/lib/auth-context';
 
+interface InstagramConnection {
+  user_id: string;
+  username: string;
+  access_token: string;
+  followers_count: number;
+  connected_at: string;
+}
+
 export default function SettingsPage() {
   const { user } = useAuth();
   const [conversionWindow, setConversionWindow] = useState(48);
   const [minConfidence, setMinConfidence] = useState(60);
+  const [instagramConnection, setInstagramConnection] = useState<InstagramConnection | null>(null);
 
   // Vérifier si l'utilisateur a Shopify connecté
   const shopifyConnected = !!(user?.shopifyStore && user?.shopifyAccessToken);
+
+  // Charger la connexion Instagram depuis localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem('instagram-connection');
+    if (stored) {
+      try {
+        setInstagramConnection(JSON.parse(stored));
+      } catch (e) {
+        console.error('Error parsing Instagram connection:', e);
+      }
+    }
+  }, []);
+
+  const handleInstagramConnect = () => {
+    window.location.href = '/api/auth/instagram';
+  };
+
+  const handleInstagramDisconnect = () => {
+    localStorage.removeItem('instagram-connection');
+    setInstagramConnection(null);
+  };
 
   return (
     <div className="space-y-8">
@@ -70,24 +100,77 @@ export default function SettingsPage() {
 
           {/* Instagram */}
           <Card>
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#833AB4] via-[#E1306C] to-[#F77737] flex items-center justify-center">
-                <Instagram className="w-6 h-6 text-white" />
-              </div>
-              <div className="flex-1">
-                <CardTitle>Instagram</CardTitle>
-                <CardDescription>
-                  La détection des posts fonctionne automatiquement
-                </CardDescription>
-                <div className="mt-3 p-3 rounded-lg bg-background-secondary">
-                  <p className="text-sm text-foreground">
-                    Notre système détecte automatiquement les posts de vos influenceurs
-                    mentionnant votre produit grâce à l'analyse des hashtags, mentions
-                    et mots-clés configurés dans vos campagnes.
-                  </p>
+            <div className="flex items-start justify-between">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#833AB4] via-[#E1306C] to-[#F77737] flex items-center justify-center">
+                  <Instagram className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <CardTitle>Instagram</CardTitle>
+                  <CardDescription>
+                    Connectez votre compte pour détecter automatiquement les mentions
+                  </CardDescription>
                 </div>
               </div>
+
+              {instagramConnection ? (
+                <div className="flex items-center gap-3">
+                  <Badge variant="success">
+                    <Check className="w-3 h-3 mr-1" />
+                    Connecté
+                  </Badge>
+                  <Button variant="ghost" size="sm" onClick={handleInstagramDisconnect}>
+                    Déconnecter
+                  </Button>
+                </div>
+              ) : (
+                <Button onClick={handleInstagramConnect}>
+                  <Instagram className="w-4 h-4 mr-2" />
+                  Connecter
+                </Button>
+              )}
             </div>
+
+            {instagramConnection && (
+              <div className="mt-4 pt-4 border-t border-border/50">
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <p className="text-foreground-secondary">Compte</p>
+                    <p className="font-medium text-foreground">@{instagramConnection.username}</p>
+                  </div>
+                  <div>
+                    <p className="text-foreground-secondary">Followers</p>
+                    <p className="font-medium text-foreground">
+                      {instagramConnection.followers_count.toLocaleString('fr-FR')}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-foreground-secondary">Connecté le</p>
+                    <p className="font-medium text-foreground">
+                      {new Date(instagramConnection.connected_at).toLocaleDateString('fr-FR')}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <Button variant="secondary" size="sm" onClick={handleInstagramConnect}>
+                    <RefreshCw className="w-3 h-3 mr-1" />
+                    Reconnecter
+                  </Button>
+                  <span className="text-xs text-foreground-secondary">
+                    Token valide ~60 jours
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {!instagramConnection && (
+              <div className="mt-3 p-3 rounded-lg bg-background-secondary">
+                <p className="text-sm text-foreground-secondary">
+                  La connexion Instagram permet de détecter automatiquement quand des influenceurs
+                  vous mentionnent dans leurs posts et stories.
+                </p>
+              </div>
+            )}
           </Card>
         </div>
       </section>
