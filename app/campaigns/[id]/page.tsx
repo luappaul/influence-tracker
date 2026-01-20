@@ -1056,22 +1056,26 @@ export default function CampaignDetailPage() {
                           <RefreshCw className="w-3.5 h-3.5" />
                         )}
                       </Button>
-                      <button
-                        onClick={() => totalContentCount > 0 && toggleExpand(influencer.username)}
-                        className={`flex items-center gap-1 text-sm ${totalContentCount > 0 ? 'text-accent hover:underline cursor-pointer' : 'text-foreground-secondary cursor-default'}`}
-                      >
-                        <span className="font-medium">{postsCount}</span>
-                        {storiesCount > 0 && (
-                          <span className="text-xs text-info">+{storiesCount}s</span>
-                        )}
-                        {totalContentCount > 0 && (
-                          isExpanded ? (
+                      {totalContentCount > 0 ? (
+                        <button
+                          onClick={() => toggleExpand(influencer.username)}
+                          className="flex items-center gap-1 text-sm text-accent hover:underline cursor-pointer"
+                        >
+                          <span className="font-medium">{postsCount}</span>
+                          {storiesCount > 0 && (
+                            <span className="text-xs text-info">+{storiesCount}s</span>
+                          )}
+                          {isExpanded ? (
                             <ChevronUp className="w-4 h-4" />
                           ) : (
                             <ChevronDown className="w-4 h-4" />
-                          )
-                        )}
-                      </button>
+                          )}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-foreground-secondary italic">
+                          Aucun post
+                        </span>
+                      )}
                     </div>
 
                     {/* Actions (seulement si non verrouillé) */}
@@ -1142,7 +1146,7 @@ export default function CampaignDetailPage() {
                             <RefreshCw className="w-3 h-3" />
                           )}
                         </Button>
-                        {postsCount > 0 && (
+                        {postsCount > 0 ? (
                           <button
                             onClick={() => toggleExpand(influencer.username)}
                             className="flex items-center gap-1 text-sm text-accent"
@@ -1150,6 +1154,8 @@ export default function CampaignDetailPage() {
                             {postsCount} posts
                             {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                           </button>
+                        ) : (
+                          <span className="text-xs text-foreground-secondary italic">Aucun post</span>
                         )}
                       </div>
                       {isLocked && influencer.collabSigned && (
