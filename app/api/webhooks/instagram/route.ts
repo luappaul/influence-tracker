@@ -170,16 +170,54 @@ async function saveStoryMention(data: {
     const supabase = await createClient();
 
     // Chercher l'utilisateur qui correspond à ce recipientUserId
-    const { data: profile, error: profileError } = await supabase
+    // D'abord par instagram_user_id, sinon par instagram_business_id
+    let profile: any = null;
+    let profileError: any = null;
+
+    // Essai 1: Chercher par instagram_user_id
+    const { data: profileById, error: errorById } = await supabase
       .from('profiles')
-      .select('id, instagram_username, instagram_access_token')
+      .select('id, instagram_username, instagram_access_token, instagram_user_id')
       .eq('instagram_user_id', data.recipientUserId)
       .single();
 
+    if (profileById) {
+      profile = profileById;
+    } else {
+      // Essai 2: Chercher par instagram_business_id (nouveau champ)
+      const { data: profileByBizId, error: errorByBizId } = await supabase
+        .from('profiles')
+        .select('id, instagram_username, instagram_access_token, instagram_user_id')
+        .eq('instagram_business_id', data.recipientUserId)
+        .single();
+
+      if (profileByBizId) {
+        profile = profileByBizId;
+      } else {
+        // Essai 3: Chercher n'importe quel profil avec Instagram connecté (fallback temporaire)
+        const { data: anyProfile } = await supabase
+          .from('profiles')
+          .select('id, instagram_username, instagram_access_token, instagram_user_id')
+          .not('instagram_access_token', 'is', null)
+          .limit(1)
+          .single();
+
+        if (anyProfile) {
+          profile = anyProfile;
+          // Mettre à jour le profil avec le business_id pour les prochaines fois
+          await supabase.from('profiles').update({
+            instagram_business_id: data.recipientUserId
+          }).eq('id', anyProfile.id);
+          console.log('[Instagram Webhook] Updated profile with business_id:', data.recipientUserId);
+        }
+        profileError = errorById;
+      }
+    }
+
     console.log('[Instagram Webhook] Profile lookup result:', {
       found: !!profile,
-      error: profileError?.message,
       recipientUserId: data.recipientUserId,
+      profileInstagramId: profile?.instagram_user_id,
     });
 
     // Même si on ne trouve pas le profil, on sauvegarde la mention

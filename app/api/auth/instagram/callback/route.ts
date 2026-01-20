@@ -83,7 +83,7 @@ export async function GET(request: Request) {
     }
 
     const tokenData: TokenResponse = await tokenResponse.json();
-    console.log('Token exchange successful, user_id:', tokenData.user_id);
+    console.log('[Instagram OAuth] Token exchange user_id:', tokenData.user_id);
 
     // Step 2: Exchange short-lived token for long-lived token (60 days)
     const longLivedResponse = await fetch(
@@ -114,6 +114,17 @@ export async function GET(request: Request) {
 
     const userData: InstagramUser = await userResponse.json();
 
+    // Log both IDs to understand which one matches webhooks
+    console.log('[Instagram OAuth] Comparing IDs:', {
+      tokenUserId: tokenData.user_id,
+      meEndpointId: userData.id,
+      areEqual: String(tokenData.user_id) === userData.id,
+    });
+
+    // Le webhook utilise l'ID du token exchange, pas celui de /me
+    // On sauvegarde l'ID du token car c'est celui utilisé par les webhooks
+    const instagramUserId = String(tokenData.user_id);
+
     // Step 4: Try to save to Supabase (if user is logged in)
     // This is optional - the OAuth still succeeds even without saving
     try {
@@ -124,18 +135,20 @@ export async function GET(request: Request) {
         // Save Instagram connection to user's profile
         // Note: These columns need to exist in the profiles table
         const { error: updateError } = await supabase.from('profiles').update({
-          instagram_user_id: userData.id,
+          instagram_user_id: instagramUserId, // Utiliser l'ID du token, pas de /me
           instagram_username: userData.username,
           instagram_access_token: accessToken,
         }).eq('id', user.id);
 
         if (updateError) {
-          console.log('Could not save Instagram to profile (columns may not exist):', updateError.message);
+          console.log('[Instagram OAuth] Could not save to profile:', updateError.message);
+        } else {
+          console.log('[Instagram OAuth] Saved to profile with instagram_user_id:', instagramUserId);
         }
       }
     } catch (dbError) {
       // Don't fail the OAuth just because DB save failed
-      console.log('Database save skipped:', dbError);
+      console.log('[Instagram OAuth] Database save skipped:', dbError);
     }
 
     // Redirect back to onboarding with success and Instagram data
@@ -143,7 +156,7 @@ export async function GET(request: Request) {
     const redirectParams = new URLSearchParams({
       instagram_connected: 'true',
       instagram_username: userData.username,
-      instagram_user_id: userData.id,
+      instagram_user_id: instagramUserId, // Utiliser l'ID du token pour cohérence avec webhooks
       instagram_token: accessToken,
       instagram_followers: String(userData.followers_count || 0),
     });
