@@ -43,6 +43,21 @@ export interface ApifyInstagramComment {
   likesCount: number;
 }
 
+export interface ApifyInstagramStory {
+  id: string;
+  pk: string;
+  code: string;
+  mediaType: 'image' | 'video';
+  imageUrl: string;
+  videoUrl?: string;
+  timestamp: string;
+  expiresAt: string;
+  username: string;
+  mentions: string[]; // @mentions dans la story
+  hashtags: string[];
+  linkUrl?: string; // Lien swipe-up
+}
+
 // Rechercher des profils Instagram par username
 export async function searchInstagramProfiles(usernames: string[]): Promise<ApifyInstagramProfile[]> {
   const apiToken = process.env.APIFY_API_TOKEN;
@@ -254,5 +269,105 @@ function mapApifyComment(data: any): ApifyInstagramComment {
     ownerProfilePicUrl: data.ownerProfilePicUrl || data.owner?.profile_pic_url || data.profilePicUrl || '',
     timestamp: data.timestamp || data.created_at || '',
     likesCount: data.likesCount || data.like_count || 0,
+  };
+}
+
+// Récupérer les stories d'un profil
+export async function getInstagramStories(username: string): Promise<ApifyInstagramStory[]> {
+  const apiToken = process.env.APIFY_API_TOKEN;
+
+  if (!apiToken) {
+    throw new Error('APIFY_API_TOKEN non configuré');
+  }
+
+  // Utiliser l'actor datavoyantlab/advanced-instagram-stories-scraper
+  const response = await fetch(
+    `${APIFY_API_URL}/acts/datavoyantlab~advanced-instagram-stories-scraper/run-sync-get-dataset-items?token=${apiToken}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        usernames: [username],
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error('Apify stories error:', error);
+    throw new Error('Erreur lors de la récupération des stories');
+  }
+
+  const data = await response.json();
+  console.log(`Apify returned ${data.length} stories for ${username}`);
+  return data.map(mapApifyStory);
+}
+
+function mapApifyStory(data: any): ApifyInstagramStory {
+  // Extraire l'URL de l'image depuis image_versions2
+  let imageUrl = '';
+  if (data.image_versions2?.candidates?.length > 0) {
+    // Prendre la plus grande image
+    const candidates = data.image_versions2.candidates;
+    const largest = candidates.reduce((prev: any, curr: any) =>
+      (curr.width > prev.width) ? curr : prev
+    );
+    imageUrl = largest.url || '';
+  }
+
+  // Extraire les mentions depuis les stickers ou le texte
+  const mentions: string[] = [];
+  if (data.reel_mentions) {
+    data.reel_mentions.forEach((m: any) => {
+      if (m.user?.username) mentions.push(m.user.username);
+    });
+  }
+  if (data.story_bloks_stickers) {
+    data.story_bloks_stickers.forEach((s: any) => {
+      if (s.bloks_sticker?.sticker_data?.ig_mention?.username) {
+        mentions.push(s.bloks_sticker.sticker_data.ig_mention.username);
+      }
+    });
+  }
+
+  // Extraire les hashtags
+  const hashtags: string[] = [];
+  if (data.story_hashtags) {
+    data.story_hashtags.forEach((h: any) => {
+      if (h.hashtag?.name) hashtags.push(h.hashtag.name);
+    });
+  }
+
+  // Extraire le lien swipe-up
+  let linkUrl = '';
+  if (data.story_link_stickers?.length > 0) {
+    linkUrl = data.story_link_stickers[0].story_link?.url || '';
+  } else if (data.story_cta?.length > 0) {
+    linkUrl = data.story_cta[0].links?.[0]?.webUri || '';
+  }
+
+  // Timestamp
+  const timestamp = data.taken_at
+    ? new Date(data.taken_at * 1000).toISOString()
+    : '';
+  const expiresAt = data.expiring_at
+    ? new Date(data.expiring_at * 1000).toISOString()
+    : '';
+
+  return {
+    id: data.id || data.pk || '',
+    pk: data.pk || data.id || '',
+    code: data.code || '',
+    mediaType: data.media_type === 2 ? 'video' : 'image',
+    imageUrl,
+    videoUrl: data.video_versions?.[0]?.url || '',
+    timestamp,
+    expiresAt,
+    username: data.user?.username || '',
+    mentions,
+    hashtags,
+    linkUrl,
   };
 }

@@ -32,7 +32,11 @@ import {
   HelpCircle,
   Link2,
   Copy,
-  Lock
+  Lock,
+  Circle,
+  Clock,
+  AtSign,
+  Hash
 } from 'lucide-react';
 import Link from 'next/link';
 import { useUserCampaigns } from '@/lib/hooks/use-user-data';
@@ -51,6 +55,22 @@ interface ScrapedPost {
   mentionsProduct?: boolean | null; // null = pas encore analysé, true = parle du produit, false = ne parle pas du produit
 }
 
+interface ScrapedStory {
+  id: string;
+  pk: string;
+  code: string;
+  mediaType: 'image' | 'video';
+  imageUrl: string;
+  videoUrl?: string;
+  timestamp: string;
+  expiresAt: string;
+  username: string;
+  mentions: string[];
+  hashtags: string[];
+  linkUrl?: string;
+  mentionsProduct?: boolean | null;
+}
+
 interface CampaignInfluencer {
   id: string;
   username: string;
@@ -61,12 +81,14 @@ interface CampaignInfluencer {
   campaignStartDate?: string;
   campaignDays?: number;
   scrapedPosts?: ScrapedPost[];
+  scrapedStories?: ScrapedStory[];
   lastScrapedAt?: string;
+  lastStoriesScrapedAt?: string;
   roi?: number | null;
   revenue?: number;
   collabToken?: string;
   instagramConnected?: boolean;
-  collabSigned?: boolean; // L'influenceur a signé/accepté via le lien collab
+  collabSigned?: boolean;
   collabSignedAt?: string;
 }
 
@@ -317,6 +339,106 @@ export default function CampaignDetailPage() {
     }
   };
 
+  // Scraper les stories (ne récupère que les stories actives - 24h)
+  const scrapeStories = async (influencer: CampaignInfluencer) => {
+    if (!campaign) return;
+
+    setScrapingInfluencer(influencer.username);
+
+    try {
+      const { brandUsername } = getBrandInfo();
+
+      let url = `/api/instagram/stories?username=${encodeURIComponent(influencer.username)}`;
+      if (brandUsername) url += `&brandUsername=${encodeURIComponent(brandUsername)}`;
+
+      const response = await fetch(url);
+      const data = await response.json();
+
+      const updatedInfluencers = campaign.influencers.map((i) =>
+        i.username === influencer.username
+          ? {
+              ...i,
+              scrapedStories: data.stories || [],
+              lastStoriesScrapedAt: new Date().toISOString(),
+            }
+          : i
+      );
+
+      saveCampaign({
+        ...campaign,
+        influencers: updatedInfluencers,
+      });
+
+      setExpandedInfluencers((prev) => new Set([...prev, influencer.username]));
+    } catch (error) {
+      console.error('Stories scraping error:', error);
+      alert('Erreur lors du scraping des stories');
+    } finally {
+      setScrapingInfluencer(null);
+    }
+  };
+
+  // Scraper posts + stories en même temps
+  const scrapeAll = async (influencer: CampaignInfluencer) => {
+    if (!campaign) return;
+
+    setScrapingInfluencer(influencer.username);
+
+    try {
+      const { brandUsername, brandName } = getBrandInfo();
+
+      // Fetch posts and stories in parallel
+      const startDate = influencer.campaignStartDate ? new Date(influencer.campaignStartDate) : new Date();
+      const endDate = new Date(startDate);
+      if (influencer.campaignDays) {
+        endDate.setDate(endDate.getDate() + influencer.campaignDays);
+      }
+
+      let postsUrl = `/api/instagram/posts?username=${encodeURIComponent(influencer.username)}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`;
+      if (brandUsername) postsUrl += `&brandUsername=${encodeURIComponent(brandUsername)}`;
+      if (brandName) postsUrl += `&brandName=${encodeURIComponent(brandName)}`;
+
+      let storiesUrl = `/api/instagram/stories?username=${encodeURIComponent(influencer.username)}`;
+      if (brandUsername) storiesUrl += `&brandUsername=${encodeURIComponent(brandUsername)}`;
+
+      const [postsRes, storiesRes] = await Promise.all([
+        fetch(postsUrl),
+        fetch(storiesUrl),
+      ]);
+
+      const postsData = await postsRes.json();
+      const storiesData = await storiesRes.json();
+
+      if (postsData.warning) {
+        alert(postsData.warning);
+      }
+
+      const updatedInfluencers = campaign.influencers.map((i) =>
+        i.username === influencer.username
+          ? {
+              ...i,
+              scrapedPosts: postsData.posts || [],
+              scrapedStories: storiesData.stories || [],
+              lastScrapedAt: new Date().toISOString(),
+              lastStoriesScrapedAt: new Date().toISOString(),
+            }
+          : i
+      );
+
+      saveCampaign({
+        ...campaign,
+        influencers: updatedInfluencers,
+      });
+
+      setExpandedInfluencers((prev) => new Set([...prev, influencer.username]));
+    } catch (error) {
+      console.error('Scraping error:', error);
+      alert('Erreur lors du scraping');
+    } finally {
+      setScrapingInfluencer(null);
+    }
+  };
+
   const toggleExpand = (username: string) => {
     setExpandedInfluencers((prev) => {
       const newSet = new Set(prev);
@@ -353,6 +475,37 @@ export default function CampaignDetailPage() {
       });
 
       return { ...influencer, scrapedPosts: updatedPosts };
+    });
+
+    saveCampaign({
+      ...campaign,
+      influencers: updatedInfluencers,
+    });
+  };
+
+  // Toggle le statut "mentionsProduct" d'une story
+  const toggleStoryProductMention = (username: string, storyId: string) => {
+    if (!campaign) return;
+
+    const updatedInfluencers = campaign.influencers.map((influencer) => {
+      if (influencer.username !== username) return influencer;
+
+      const updatedStories = influencer.scrapedStories?.map((story) => {
+        if (story.id !== storyId) return story;
+
+        let newValue: boolean | null;
+        if (story.mentionsProduct === null || story.mentionsProduct === undefined) {
+          newValue = true;
+        } else if (story.mentionsProduct === true) {
+          newValue = false;
+        } else {
+          newValue = null;
+        }
+
+        return { ...story, mentionsProduct: newValue };
+      });
+
+      return { ...influencer, scrapedStories: updatedStories };
     });
 
     saveCampaign({
@@ -715,7 +868,7 @@ export default function CampaignDetailPage() {
               <div className="col-span-2">Début</div>
               <div className="col-span-1 text-center">Durée</div>
               {isLocked && <div className="col-span-2 text-center">Lien collab</div>}
-              <div className="col-span-2 text-center">Posts</div>
+              <div className="col-span-2 text-center">Contenu</div>
               {!isLocked && <div className="col-span-2"></div>}
             </div>
 
@@ -724,6 +877,8 @@ export default function CampaignDetailPage() {
               const isExpanded = expandedInfluencers.has(influencer.username);
               const isScraping = scrapingInfluencer === influencer.username;
               const postsCount = influencer.scrapedPosts?.length || 0;
+              const storiesCount = influencer.scrapedStories?.length || 0;
+              const totalContentCount = postsCount + storiesCount;
 
               return (
                 <div key={influencer.username} className="space-y-0">
@@ -885,15 +1040,15 @@ export default function CampaignDetailPage() {
                       </div>
                     )}
 
-                    {/* Posts & Refresh */}
+                    {/* Contenu & Refresh */}
                     <div className="col-span-2 flex items-center justify-center gap-2">
                       <Button
                         size="sm"
                         variant="secondary"
-                        onClick={() => scrapePosts(influencer)}
+                        onClick={() => scrapeAll(influencer)}
                         disabled={isScraping}
                         className="h-7 w-7 p-0"
-                        title="Actualiser les posts"
+                        title="Actualiser posts + stories"
                       >
                         {isScraping ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -902,11 +1057,14 @@ export default function CampaignDetailPage() {
                         )}
                       </Button>
                       <button
-                        onClick={() => postsCount > 0 && toggleExpand(influencer.username)}
-                        className={`flex items-center gap-1 text-sm ${postsCount > 0 ? 'text-accent hover:underline cursor-pointer' : 'text-foreground-secondary cursor-default'}`}
+                        onClick={() => totalContentCount > 0 && toggleExpand(influencer.username)}
+                        className={`flex items-center gap-1 text-sm ${totalContentCount > 0 ? 'text-accent hover:underline cursor-pointer' : 'text-foreground-secondary cursor-default'}`}
                       >
                         <span className="font-medium">{postsCount}</span>
-                        {postsCount > 0 && (
+                        {storiesCount > 0 && (
+                          <span className="text-xs text-info">+{storiesCount}s</span>
+                        )}
+                        {totalContentCount > 0 && (
                           isExpanded ? (
                             <ChevronUp className="w-4 h-4" />
                           ) : (
@@ -1003,12 +1161,12 @@ export default function CampaignDetailPage() {
                     </div>
                   </div>
 
-                  {/* Posts expandés - Format tableau */}
-                  {isExpanded && influencer.scrapedPosts && influencer.scrapedPosts.length > 0 && (
+                  {/* Contenu expandé - Posts + Stories */}
+                  {isExpanded && (postsCount > 0 || storiesCount > 0) && (
                     <div className="bg-background-secondary/50 rounded-b-lg p-4 border-t border-border/30">
                       <div className="flex items-center justify-between mb-3">
                         <p className="text-sm text-foreground-secondary">
-                          {influencer.scrapedPosts.length} posts trouvés
+                          {postsCount} posts{storiesCount > 0 && ` + ${storiesCount} stories`}
                         </p>
                         {influencer.lastScrapedAt && (
                           <p className="text-xs text-foreground-secondary">
@@ -1016,6 +1174,91 @@ export default function CampaignDetailPage() {
                           </p>
                         )}
                       </div>
+
+                      {/* Section Stories (si présentes) */}
+                      {storiesCount > 0 && (
+                        <div className="mb-4">
+                          <p className="text-xs font-medium text-info mb-2 flex items-center gap-1">
+                            <Circle className="w-3 h-3" /> Stories actives ({storiesCount})
+                          </p>
+                          <div className="flex gap-3 overflow-x-auto pb-2">
+                            {influencer.scrapedStories?.map((story) => (
+                              <div key={story.id} className="flex-shrink-0 w-20">
+                                <div className="relative w-20 h-28 rounded-lg overflow-hidden bg-background border-2 border-info/30">
+                                  {story.imageUrl ? (
+                                    <img
+                                      src={`/api/proxy-image?url=${encodeURIComponent(story.imageUrl)}`}
+                                      alt=""
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-b from-info/20 to-info/5">
+                                      {story.mediaType === 'video' ? (
+                                        <Video className="w-6 h-6 text-info" />
+                                      ) : (
+                                        <Circle className="w-6 h-6 text-info" />
+                                      )}
+                                    </div>
+                                  )}
+                                  {/* Badge mentions/hashtags */}
+                                  <div className="absolute top-1 right-1 flex flex-col gap-0.5">
+                                    {story.mentions.length > 0 && (
+                                      <span className="w-4 h-4 bg-accent rounded-full flex items-center justify-center">
+                                        <AtSign className="w-2.5 h-2.5 text-white" />
+                                      </span>
+                                    )}
+                                    {story.hashtags.length > 0 && (
+                                      <span className="w-4 h-4 bg-info rounded-full flex items-center justify-center">
+                                        <Hash className="w-2.5 h-2.5 text-white" />
+                                      </span>
+                                    )}
+                                    {story.linkUrl && (
+                                      <span className="w-4 h-4 bg-success rounded-full flex items-center justify-center">
+                                        <Link2 className="w-2.5 h-2.5 text-white" />
+                                      </span>
+                                    )}
+                                  </div>
+                                  {/* Expiration countdown */}
+                                  {story.expiresAt && (
+                                    <div className="absolute bottom-1 left-1 right-1 text-[10px] text-white bg-black/60 rounded px-1 py-0.5 flex items-center gap-0.5 justify-center">
+                                      <Clock className="w-2.5 h-2.5" />
+                                      {Math.max(0, Math.round((new Date(story.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60)))}h
+                                    </div>
+                                  )}
+                                </div>
+                                {/* Toggle mention produit */}
+                                <button
+                                  onClick={() => toggleStoryProductMention(influencer.username, story.id)}
+                                  className="w-full mt-1 text-[10px]"
+                                >
+                                  {story.mentionsProduct === true ? (
+                                    <span className="flex items-center justify-center gap-0.5 px-1 py-0.5 rounded bg-success/10 text-success">
+                                      <CheckCircle2 className="w-2.5 h-2.5" />Oui
+                                    </span>
+                                  ) : story.mentionsProduct === false ? (
+                                    <span className="flex items-center justify-center gap-0.5 px-1 py-0.5 rounded bg-danger/10 text-danger">
+                                      <XCircle className="w-2.5 h-2.5" />Non
+                                    </span>
+                                  ) : (
+                                    <span className="flex items-center justify-center gap-0.5 px-1 py-0.5 rounded bg-foreground-secondary/10 text-foreground-secondary">
+                                      <HelpCircle className="w-2.5 h-2.5" />?
+                                    </span>
+                                  )}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Section Posts */}
+                      {postsCount > 0 && (
+                        <>
+                          {storiesCount > 0 && (
+                            <p className="text-xs font-medium text-foreground-secondary mb-2 flex items-center gap-1">
+                              <ImageIcon className="w-3 h-3" /> Posts ({postsCount})
+                            </p>
+                          )}
 
                       {/* Header du tableau - masqué sur mobile */}
                       <div className="hidden sm:grid grid-cols-12 gap-3 px-3 py-2 text-xs font-medium text-foreground-secondary border-b border-border/30 mb-2">
@@ -1030,7 +1273,7 @@ export default function CampaignDetailPage() {
 
                       {/* Lignes des posts */}
                       <div className="space-y-2">
-                        {influencer.scrapedPosts.map((post) => (
+                        {influencer.scrapedPosts?.map((post) => (
                           <React.Fragment key={post.id || post.shortCode}>
                           {/* Desktop row */}
                           <div
@@ -1185,6 +1428,8 @@ export default function CampaignDetailPage() {
                         </React.Fragment>
                         ))}
                       </div>
+                        </>
+                      )}
 
                     </div>
                   )}
