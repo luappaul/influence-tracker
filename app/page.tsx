@@ -85,6 +85,39 @@ interface ScrapedPost {
   commentersScrapedAt?: string;
 }
 
+interface ScrapedStory {
+  id: string;
+  pk: string;
+  code: string;
+  mediaType: 'image' | 'video';
+  imageUrl: string;
+  videoUrl?: string;
+  timestamp: string;
+  expiresAt: string;
+  username: string;
+  mentions: string[];
+  hashtags: string[];
+  linkUrl?: string;
+  mentionsProduct?: boolean | null;
+}
+
+// Convertit une story en format post pour uniformiser le traitement
+function storyToPost(story: ScrapedStory, influencerUsername: string): ScrapedPost {
+  return {
+    id: story.id,
+    shortCode: story.code,
+    caption: '', // Les stories n'ont pas de caption
+    url: `https://instagram.com/stories/${influencerUsername}/${story.id}`,
+    commentsCount: 0,
+    likesCount: 0,
+    timestamp: story.timestamp,
+    type: story.mediaType === 'video' ? 'Video' : 'Image',
+    displayUrl: story.imageUrl,
+    videoUrl: story.videoUrl,
+    mentionsProduct: story.mentionsProduct,
+  };
+}
+
 interface CampaignInfluencer {
   id: string;
   username: string;
@@ -95,6 +128,7 @@ interface CampaignInfluencer {
   campaignStartDate?: string;
   campaignDays?: number;
   scrapedPosts?: ScrapedPost[];
+  scrapedStories?: ScrapedStory[];
   lastScrapedAt?: string;
 }
 
@@ -369,15 +403,23 @@ export default function Dashboard() {
     );
   }, [selectedCampaign, campaignPeriod, orders]);
 
+  // Helper: combine posts + stories pour un influenceur
+  const getAllContent = (influencer: CampaignInfluencer): ScrapedPost[] => {
+    const posts = influencer.scrapedPosts || [];
+    const storiesAsPosts = (influencer.scrapedStories || []).map(s => storyToPost(s, influencer.username));
+    return [...posts, ...storiesAsPosts];
+  };
+
   // Calculer les stats par influenceur (CRM) avec attribution intelligente
   const influencerStats = useMemo((): InfluencerStats[] => {
     if (!selectedCampaign || !attributionResult) return [];
 
     // Calculer l'engagement total de tous les influenceurs pour l'attribution proportionnelle
     let totalEngagement = 0;
-    selectedCampaign.influencers.forEach((inf: any) => {
-      const productPosts = inf.scrapedPosts?.filter((p: any) => p.mentionsProduct === true) || [];
-      const engagement = productPosts.reduce((sum: number, p: any) => sum + p.likesCount + p.commentsCount, 0);
+    selectedCampaign.influencers.forEach((inf: CampaignInfluencer) => {
+      const allContent = getAllContent(inf);
+      const productPosts = allContent.filter((p: ScrapedPost) => p.mentionsProduct === true);
+      const engagement = productPosts.reduce((sum: number, p: ScrapedPost) => sum + p.likesCount + p.commentsCount, 0);
       totalEngagement += engagement;
     });
 
@@ -385,16 +427,17 @@ export default function Dashboard() {
     const incrementalFollowers = campaignStats?.incrementalFollowers || 0;
     const incrementalVisitors = campaignStats?.incrementalVisitors || 0;
 
-    return selectedCampaign.influencers.map((influencer: any) => {
-      const productPosts = influencer.scrapedPosts?.filter((p: any) => p.mentionsProduct === true) || [];
-      const allPosts = influencer.scrapedPosts || [];
+    return selectedCampaign.influencers.map((influencer: CampaignInfluencer) => {
+      const allContent = getAllContent(influencer);
+      const productPosts = allContent.filter((p: ScrapedPost) => p.mentionsProduct === true);
+      const allPosts = allContent;
 
-      // Impressions = followers × nombre de posts produit
+      // Impressions = followers × nombre de posts/stories produit
       const impressions = productPosts.length * influencer.followersCount;
 
-      // Likes et comments des posts produit
-      const likes = productPosts.reduce((sum: number, p: any) => sum + p.likesCount, 0);
-      const comments = productPosts.reduce((sum: number, p: any) => sum + p.commentsCount, 0);
+      // Likes et comments des posts produit (stories ont 0)
+      const likes = productPosts.reduce((sum: number, p: ScrapedPost) => sum + p.likesCount, 0);
+      const comments = productPosts.reduce((sum: number, p: ScrapedPost) => sum + p.commentsCount, 0);
 
       // Récupérer l'attribution intelligente pour cet influenceur
       const attribution = attributionResult.influencers.find(i => i.username === influencer.username);
@@ -535,10 +578,11 @@ export default function Dashboard() {
       }
     });
 
-    // Ajouter les likes des posts produit si une campagne est sélectionnée
+    // Ajouter les likes des posts/stories produit si une campagne est sélectionnée
     if (selectedCampaign) {
-      selectedCampaign.influencers.forEach((influencer: any) => {
-        influencer.scrapedPosts?.forEach((post: any) => {
+      selectedCampaign.influencers.forEach((influencer: CampaignInfluencer) => {
+        const allContent = getAllContent(influencer);
+        allContent.forEach((post: ScrapedPost) => {
           if (post.mentionsProduct === true) {
             const postDate = new Date(post.timestamp).toISOString().split('T')[0];
             if (!grouped[postDate]) {
@@ -624,11 +668,12 @@ export default function Dashboard() {
       totalLikes: number;
     }> = [];
 
-    // Grouper les posts par date et influenceur
+    // Grouper les posts/stories par date et influenceur
     const postsByDateAndInfluencer: Record<string, Record<string, { count: number; likes: number; profilePicUrl: string }>> = {};
 
-    selectedCampaign.influencers.forEach((influencer: any) => {
-      influencer.scrapedPosts?.forEach((post: any) => {
+    selectedCampaign.influencers.forEach((influencer: CampaignInfluencer) => {
+      const allContent = getAllContent(influencer);
+      allContent.forEach((post: ScrapedPost) => {
         if (post.mentionsProduct === true) {
           const postDate = new Date(post.timestamp).toISOString().split('T')[0];
 
