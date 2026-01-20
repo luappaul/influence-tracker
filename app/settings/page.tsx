@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Check, ShoppingBag, Instagram, Clock, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Check, ShoppingBag, Instagram, Clock, AlertTriangle, RefreshCw, Loader2, Image as ImageIcon, Video, ExternalLink } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { Card, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,11 +16,25 @@ interface InstagramConnection {
   connected_at: string;
 }
 
+interface MentionedMedia {
+  id: string;
+  media_type: string;
+  media_url?: string;
+  thumbnail_url?: string;
+  caption?: string;
+  timestamp: string;
+  permalink?: string;
+  username?: string;
+}
+
 export default function SettingsPage() {
   const { user } = useAuth();
   const [conversionWindow, setConversionWindow] = useState(48);
   const [minConfidence, setMinConfidence] = useState(60);
   const [instagramConnection, setInstagramConnection] = useState<InstagramConnection | null>(null);
+  const [mentions, setMentions] = useState<MentionedMedia[]>([]);
+  const [mentionsLoading, setMentionsLoading] = useState(false);
+  const [mentionsError, setMentionsError] = useState<string | null>(null);
 
   // Vérifier si l'utilisateur a Shopify connecté
   const shopifyConnected = !!(user?.shopifyStore && user?.shopifyAccessToken);
@@ -44,6 +58,37 @@ export default function SettingsPage() {
   const handleInstagramDisconnect = () => {
     localStorage.removeItem('instagram-connection');
     setInstagramConnection(null);
+    setMentions([]);
+  };
+
+  // Récupérer les mentions via l'API Instagram
+  const fetchMentions = async () => {
+    if (!instagramConnection?.access_token) {
+      setMentionsError('Pas de token Instagram');
+      return;
+    }
+
+    setMentionsLoading(true);
+    setMentionsError(null);
+
+    try {
+      const response = await fetch(
+        `/api/instagram/mentioned-media?access_token=${encodeURIComponent(instagramConnection.access_token)}`
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Erreur lors de la récupération');
+      }
+
+      setMentions(data.mentions || []);
+      console.log('Mentions récupérées:', data);
+    } catch (error) {
+      console.error('Error fetching mentions:', error);
+      setMentionsError(error instanceof Error ? error.message : 'Erreur inconnue');
+    } finally {
+      setMentionsLoading(false);
+    }
   };
 
   return (
@@ -159,6 +204,101 @@ export default function SettingsPage() {
                   <span className="text-xs text-foreground-secondary">
                     Token valide ~60 jours
                   </span>
+                </div>
+
+                {/* Section Mentions */}
+                <div className="mt-4 pt-4 border-t border-border/50">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-sm font-medium text-foreground">Mentions reçues</p>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={fetchMentions}
+                      disabled={mentionsLoading}
+                    >
+                      {mentionsLoading ? (
+                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-3 h-3 mr-1" />
+                      )}
+                      Récupérer les mentions
+                    </Button>
+                  </div>
+
+                  {mentionsError && (
+                    <div className="p-3 rounded-lg bg-danger/10 text-danger text-sm mb-3">
+                      {mentionsError}
+                    </div>
+                  )}
+
+                  {mentions.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-xs text-foreground-secondary mb-2">
+                        {mentions.length} mention(s) trouvée(s)
+                      </p>
+                      <div className="grid gap-2 max-h-[300px] overflow-y-auto">
+                        {mentions.map((mention) => (
+                          <div
+                            key={mention.id}
+                            className="flex items-center gap-3 p-2 rounded-lg bg-background-secondary"
+                          >
+                            <div className="w-12 h-12 rounded-lg bg-background overflow-hidden flex-shrink-0">
+                              {mention.media_url || mention.thumbnail_url ? (
+                                <img
+                                  src={`/api/proxy-image?url=${encodeURIComponent(mention.media_url || mention.thumbnail_url || '')}`}
+                                  alt=""
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  {mention.media_type === 'VIDEO' ? (
+                                    <Video className="w-5 h-5 text-foreground-secondary" />
+                                  ) : (
+                                    <ImageIcon className="w-5 h-5 text-foreground-secondary" />
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-foreground">
+                                  @{mention.username || 'inconnu'}
+                                </span>
+                                <Badge className="text-[10px] px-1.5 py-0">
+                                  {mention.media_type === 'STORY' ? 'Story' : mention.media_type}
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-foreground-secondary truncate">
+                                {mention.caption || 'Pas de caption'}
+                              </p>
+                              <p className="text-[10px] text-foreground-secondary">
+                                {new Date(mention.timestamp).toLocaleDateString('fr-FR', {
+                                  day: 'numeric',
+                                  month: 'short',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </p>
+                            </div>
+                            {mention.permalink && (
+                              <a
+                                href={mention.permalink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-2 text-foreground-secondary hover:text-accent"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : !mentionsLoading && !mentionsError ? (
+                    <p className="text-sm text-foreground-secondary">
+                      Cliquez sur "Récupérer les mentions" pour voir les posts et stories où vous êtes mentionné.
+                    </p>
+                  ) : null}
                 </div>
               </div>
             )}
