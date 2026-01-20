@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/server';
 
 // Token de vérification - doit correspondre à celui configuré dans Facebook App
 const VERIFY_TOKEN = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || 'datafluence_webhook_2024';
@@ -167,7 +167,7 @@ async function saveStoryMention(data: {
   });
 
   try {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
 
     // Chercher l'utilisateur qui correspond à ce recipientUserId
     // D'abord par instagram_user_id, sinon par instagram_business_id
@@ -338,7 +338,7 @@ async function saveMention(data: {
   rawData?: any;
 }) {
   try {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
 
     // Chercher l'utilisateur qui correspond à ce recipientUserId
     const { data: profile } = await supabase
