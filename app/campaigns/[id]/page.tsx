@@ -815,13 +815,21 @@ export default function CampaignDetailPage() {
         </Card>
       </div>
 
-      {/* Mentions reçues (Stories) */}
-      {mentions.length > 0 && (
+      {/* Mentions reçues (Stories) - seulement celles non assignées */}
+      {(() => {
+        // Filtrer les mentions qui ne sont pas déjà assignées à un influenceur de la campagne
+        const campaignInfluencerUsernames = campaign.influencers.map(i => i.username.toLowerCase());
+        const unassignedMentions = mentions.filter(m => {
+          const assignedTo = m.influencer_username?.toLowerCase() || m.mentioned_by_username?.toLowerCase();
+          return !assignedTo || !campaignInfluencerUsernames.includes(assignedTo);
+        });
+
+        return unassignedMentions.length > 0 && (
         <Card>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <CardTitle>Mentions reçues</CardTitle>
-              <Badge className="bg-accent/10 text-accent">{mentions.length}</Badge>
+              <Badge className="bg-accent/10 text-accent">{unassignedMentions.length}</Badge>
             </div>
             <Button
               variant="secondary"
@@ -838,7 +846,7 @@ export default function CampaignDetailPage() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {mentions.map((mention) => {
+            {unassignedMentions.map((mention) => {
               const isExpired = mention.expires_at && new Date(mention.expires_at) < new Date();
               const hoursLeft = mention.expires_at
                 ? Math.max(0, Math.round((new Date(mention.expires_at).getTime() - Date.now()) / (1000 * 60 * 60)))
@@ -935,13 +943,14 @@ export default function CampaignDetailPage() {
             })}
           </div>
 
-          {mentions.length === 0 && !mentionsLoading && (
+          {unassignedMentions.length === 0 && !mentionsLoading && (
             <p className="text-sm text-foreground-secondary text-center py-4">
               Aucune mention reçue pour le moment
             </p>
           )}
         </Card>
-      )}
+        );
+      })()}
 
       {/* Influenceurs */}
       <Card>
@@ -1077,9 +1086,10 @@ export default function CampaignDetailPage() {
               const isScraping = scrapingInfluencer === influencer.username;
               const postsCount = influencer.scrapedPosts?.length || 0;
               const storiesCount = influencer.scrapedStories?.length || 0;
-              // Mentions assignées à cet influenceur
+              // Mentions assignées à cet influenceur (par influencer_username OU mentioned_by_username)
               const influencerMentions = mentions.filter(
-                m => m.influencer_username?.toLowerCase() === influencer.username.toLowerCase()
+                m => m.influencer_username?.toLowerCase() === influencer.username.toLowerCase() ||
+                     (m.mentioned_by_username?.toLowerCase() === influencer.username.toLowerCase() && !m.influencer_username)
               );
               const mentionsCount = influencerMentions.length;
               const totalContentCount = postsCount + storiesCount + mentionsCount;
