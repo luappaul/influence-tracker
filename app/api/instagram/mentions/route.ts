@@ -1,60 +1,64 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-// Structure d'une mention stockée localement (pour le mode sans Supabase)
-interface StoredMention {
-  id: string;
-  mediaId: string;
-  mentionedBy?: string; // Username de l'influenceur qui a fait la mention
-  mediaType?: 'story' | 'post' | 'reel';
-  mediaUrl?: string;
-  timestamp: string;
-  processed: boolean;
-}
+import { createClient } from '@/lib/supabase/server';
 
 // GET: Récupérer les mentions pour l'utilisateur connecté
 export async function GET(request: NextRequest) {
-  const accessToken = request.nextUrl.searchParams.get('access_token');
-
-  if (!accessToken) {
-    return NextResponse.json(
-      { error: 'Access token requis' },
-      { status: 400 }
-    );
-  }
+  const userId = request.nextUrl.searchParams.get('user_id');
+  const campaignId = request.nextUrl.searchParams.get('campaign_id');
+  const unprocessedOnly = request.nextUrl.searchParams.get('unprocessed') === 'true';
 
   try {
-    // Récupérer les médias où l'utilisateur est tagué via l'API Instagram
-    // Note: Ceci récupère les posts/reels taggés, pas les story mentions
-    const response = await fetch(
-      `https://graph.instagram.com/v21.0/me/tags?fields=id,media_type,media_url,timestamp,username,caption&access_token=${accessToken}`
-    );
+    const supabase = await createClient();
 
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('[Instagram Mentions] API error:', error);
+    // Construire la requête
+    let query = supabase
+      .from('instagram_mentions')
+      .select('*')
+      .order('received_at', { ascending: false });
+
+    // Filtrer par utilisateur si spécifié
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+
+    // Filtrer par campagne si spécifié
+    if (campaignId) {
+      query = query.eq('campaign_id', campaignId);
+    }
+
+    // Filtrer les non-traitées si demandé
+    if (unprocessedOnly) {
+      query = query.eq('processed', false);
+    }
+
+    const { data: mentions, error } = await query.limit(100);
+
+    if (error) {
+      console.error('[Instagram Mentions] Supabase error:', error);
       return NextResponse.json(
-        { error: 'Erreur lors de la récupération des mentions', details: error },
-        { status: response.status }
+        { error: 'Erreur lors de la récupération des mentions', details: error.message },
+        { status: 500 }
       );
     }
 
-    const data = await response.json();
+    // Séparer les stories actives et expirées
+    const now = new Date();
+    const activeMentions = mentions?.filter(m => {
+      if (!m.expires_at) return true; // Posts/reels n'expirent pas
+      return new Date(m.expires_at) > now;
+    }) || [];
 
-    // Mapper les données
-    const mentions = (data.data || []).map((media: any) => ({
-      id: media.id,
-      mediaId: media.id,
-      mentionedBy: media.username,
-      mediaType: media.media_type?.toLowerCase() || 'post',
-      mediaUrl: media.media_url,
-      caption: media.caption,
-      timestamp: media.timestamp,
-    }));
+    const expiredMentions = mentions?.filter(m => {
+      if (!m.expires_at) return false;
+      return new Date(m.expires_at) <= now;
+    }) || [];
 
     return NextResponse.json({
-      mentions,
-      total: mentions.length,
-      note: 'Ceci inclut les posts/reels où vous êtes tagué. Les mentions de stories arrivent via webhook.',
+      mentions: activeMentions,
+      expiredMentions,
+      total: mentions?.length || 0,
+      active: activeMentions.length,
+      expired: expiredMentions.length,
     });
 
   } catch (error) {
@@ -66,18 +70,45 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST: Marquer une mention comme traitée ou l'associer à une campagne
+// POST: Associer une mention à une campagne
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { mentionId, campaignId, influencerUsername } = body;
+    const { mentionId, campaignId, influencerUsername, mentionsProduct } = body;
 
-    // Pour l'instant, on stocke en localStorage côté client
-    // TODO: Implémenter le stockage Supabase
+    if (!mentionId) {
+      return NextResponse.json(
+        { error: 'mentionId requis' },
+        { status: 400 }
+      );
+    }
+
+    const supabase = await createClient();
+
+    const updateData: any = {
+      processed: true,
+    };
+
+    if (campaignId !== undefined) updateData.campaign_id = campaignId;
+    if (influencerUsername !== undefined) updateData.influencer_username = influencerUsername;
+    if (mentionsProduct !== undefined) updateData.mentions_product = mentionsProduct;
+
+    const { error } = await supabase
+      .from('instagram_mentions')
+      .update(updateData)
+      .eq('id', mentionId);
+
+    if (error) {
+      console.error('[Instagram Mentions] Update error:', error);
+      return NextResponse.json(
+        { error: 'Erreur lors de la mise à jour', details: error.message },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
-      message: 'Mention associée à la campagne',
+      message: 'Mention mise à jour',
     });
 
   } catch (error) {

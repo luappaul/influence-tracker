@@ -10,7 +10,6 @@ interface InstagramMentionEvent {
   value: {
     media_id: string;
     comment_id?: string;
-    // Pour les stories, on reçoit le media_id de la story
   };
 }
 
@@ -21,6 +20,21 @@ interface InstagramWebhookPayload {
     time: number;
     changes: InstagramMentionEvent[];
   }>;
+}
+
+// Détails d'un média Instagram
+interface MediaDetails {
+  id: string;
+  media_type: string;
+  media_url?: string;
+  thumbnail_url?: string;
+  timestamp: string;
+  username: string;
+  caption?: string;
+  owner?: {
+    id: string;
+    username: string;
+  };
 }
 
 // GET: Vérification du webhook par Meta
@@ -70,12 +84,13 @@ export async function POST(request: NextRequest) {
             timestamp,
           });
 
-          // Sauvegarder la mention dans Supabase
+          // Sauvegarder la mention dans Supabase avec les détails du média
           await saveMention({
             recipientUserId,
             mediaId: change.value.media_id,
             commentId: change.value.comment_id,
             timestamp,
+            rawData: { entry, change },
           });
         }
       }
@@ -91,12 +106,32 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// Récupérer les détails d'un média via l'API Instagram
+async function fetchMediaDetails(mediaId: string, accessToken: string): Promise<MediaDetails | null> {
+  try {
+    const response = await fetch(
+      `https://graph.instagram.com/v21.0/${mediaId}?fields=id,media_type,media_url,thumbnail_url,timestamp,username,caption,owner{id,username}&access_token=${accessToken}`
+    );
+
+    if (!response.ok) {
+      console.log('[Instagram Webhook] Could not fetch media details:', await response.text());
+      return null;
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('[Instagram Webhook] Error fetching media:', error);
+    return null;
+  }
+}
+
 // Sauvegarder une mention dans Supabase
 async function saveMention(data: {
   recipientUserId: string;
   mediaId: string;
   commentId?: string;
   timestamp: Date;
+  rawData?: any;
 }) {
   try {
     const supabase = await createClient();
@@ -104,7 +139,7 @@ async function saveMention(data: {
     // Chercher l'utilisateur qui correspond à ce recipientUserId
     const { data: profile } = await supabase
       .from('profiles')
-      .select('id, instagram_username')
+      .select('id, instagram_username, instagram_access_token')
       .eq('instagram_user_id', data.recipientUserId)
       .single();
 
@@ -113,21 +148,43 @@ async function saveMention(data: {
       return;
     }
 
+    // Récupérer les détails du média (image/vidéo, qui l'a posté)
+    let mediaDetails: MediaDetails | null = null;
+    if (profile.instagram_access_token) {
+      mediaDetails = await fetchMediaDetails(data.mediaId, profile.instagram_access_token);
+      console.log('[Instagram Webhook] Media details:', mediaDetails);
+    }
+
+    // Calculer l'expiration (stories = 24h après création)
+    let expiresAt: string | null = null;
+    if (mediaDetails?.media_type === 'STORY' || mediaDetails?.media_type === 'story') {
+      const mediaTime = new Date(mediaDetails.timestamp);
+      expiresAt = new Date(mediaTime.getTime() + 24 * 60 * 60 * 1000).toISOString();
+    }
+
     // Insérer la mention dans la table instagram_mentions
     const { error } = await supabase.from('instagram_mentions').insert({
       user_id: profile.id,
       instagram_user_id: data.recipientUserId,
       media_id: data.mediaId,
-      comment_id: data.commentId || null,
+      media_type: mediaDetails?.media_type?.toLowerCase() || 'story',
+      media_url: mediaDetails?.media_url || null,
+      media_thumbnail_url: mediaDetails?.thumbnail_url || null,
+      mentioned_by_user_id: mediaDetails?.owner?.id || null,
+      mentioned_by_username: mediaDetails?.owner?.username || mediaDetails?.username || null,
+      caption: mediaDetails?.caption || null,
+      media_timestamp: mediaDetails?.timestamp || null,
       received_at: data.timestamp.toISOString(),
+      expires_at: expiresAt,
       processed: false,
+      raw_webhook_data: data.rawData || null,
     });
 
     if (error) {
       // Si la table n'existe pas, log l'erreur mais ne pas crasher
       console.log('[Instagram Webhook] Could not save mention (table may not exist):', error.message);
     } else {
-      console.log('[Instagram Webhook] Mention saved successfully');
+      console.log('[Instagram Webhook] Mention saved successfully with media details');
     }
 
   } catch (error) {
