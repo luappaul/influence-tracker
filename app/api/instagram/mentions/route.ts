@@ -3,23 +3,27 @@ import { createClient } from '@/lib/supabase/server';
 
 // GET: Récupérer les mentions pour l'utilisateur connecté
 export async function GET(request: NextRequest) {
-  const userId = request.nextUrl.searchParams.get('user_id');
   const campaignId = request.nextUrl.searchParams.get('campaign_id');
   const unprocessedOnly = request.nextUrl.searchParams.get('unprocessed') === 'true';
 
   try {
     const supabase = await createClient();
 
-    // Construire la requête
+    // SÉCURITÉ: Toujours filtrer par l'utilisateur connecté
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Non authentifié' },
+        { status: 401 }
+      );
+    }
+
+    // Construire la requête - TOUJOURS filtrer par user_id
     let query = supabase
       .from('instagram_mentions')
       .select('*')
+      .eq('user_id', user.id)
       .order('received_at', { ascending: false });
-
-    // Filtrer par utilisateur si spécifié
-    if (userId) {
-      query = query.eq('user_id', userId);
-    }
 
     // Filtrer par campagne si spécifié
     if (campaignId) {
@@ -73,6 +77,17 @@ export async function GET(request: NextRequest) {
 // POST: Associer une mention à une campagne
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
+
+    // SÉCURITÉ: Vérifier l'utilisateur connecté
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Non authentifié' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
     const { mentionId, campaignId, influencerUsername, mentionsProduct } = body;
 
@@ -83,8 +98,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = await createClient();
-
     const updateData: any = {
       processed: true,
     };
@@ -93,10 +106,12 @@ export async function POST(request: NextRequest) {
     if (influencerUsername !== undefined) updateData.influencer_username = influencerUsername;
     if (mentionsProduct !== undefined) updateData.mentions_product = mentionsProduct;
 
+    // SÉCURITÉ: Ne mettre à jour que les mentions de l'utilisateur connecté
     const { error } = await supabase
       .from('instagram_mentions')
       .update(updateData)
-      .eq('id', mentionId);
+      .eq('id', mentionId)
+      .eq('user_id', user.id);
 
     if (error) {
       console.error('[Instagram Mentions] Update error:', error);

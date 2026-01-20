@@ -101,6 +101,22 @@ interface ScrapedStory {
   mentionsProduct?: boolean | null;
 }
 
+// Mention reçue via webhook Instagram
+interface StoryMention {
+  id: string;
+  media_id: string;
+  media_type: string;
+  media_url: string;
+  mentioned_by_username: string | null;
+  mentioned_by_user_id: string | null;
+  received_at: string;
+  expires_at: string | null;
+  campaign_id: string | null;
+  influencer_username: string | null;
+  mentions_product: boolean | null;
+  processed: boolean;
+}
+
 // Convertit une story en format post pour uniformiser le traitement
 function storyToPost(story: ScrapedStory, influencerUsername: string): ScrapedPost {
   return {
@@ -115,6 +131,22 @@ function storyToPost(story: ScrapedStory, influencerUsername: string): ScrapedPo
     displayUrl: story.imageUrl,
     videoUrl: story.videoUrl,
     mentionsProduct: story.mentionsProduct,
+  };
+}
+
+// Convertit une mention webhook en format post pour uniformiser le traitement
+function mentionToPost(mention: StoryMention): ScrapedPost {
+  return {
+    id: mention.id,
+    shortCode: mention.media_id,
+    caption: '', // Les story mentions n'ont pas de caption
+    url: mention.media_url || '',
+    commentsCount: 0,
+    likesCount: 0,
+    timestamp: mention.received_at,
+    type: mention.media_type === 'video' ? 'Video' : 'Image',
+    displayUrl: mention.media_url || '',
+    mentionsProduct: mention.mentions_product,
   };
 }
 
@@ -213,8 +245,30 @@ export default function Dashboard() {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [showCampaignMenu, setShowCampaignMenu] = useState(false);
   const [chartMetric, setChartMetric] = useState<ChartMetric>('sales');
+  const [mentions, setMentions] = useState<StoryMention[]>([]);
 
   const selectedCampaign = campaigns.find(c => c.id === selectedCampaignId);
+
+  // Récupérer les mentions depuis l'API (seulement si authentifié)
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchMentions = async () => {
+      try {
+        const response = await fetch('/api/instagram/mentions');
+        if (response.ok) {
+          const data = await response.json();
+          console.log('[Dashboard] Mentions fetched:', data.mentions?.length || 0);
+          setMentions(data.mentions || []);
+        } else {
+          console.log('[Dashboard] Mentions fetch failed:', response.status);
+        }
+      } catch (error) {
+        console.error('[Dashboard] Error fetching mentions:', error);
+      }
+    };
+    fetchMentions();
+  }, [user]);
 
   // Calculer les dates de la campagne sélectionnée
   const campaignPeriod = useMemo(() => {
@@ -403,11 +457,19 @@ export default function Dashboard() {
     );
   }, [selectedCampaign, campaignPeriod, orders]);
 
-  // Helper: combine posts + stories pour un influenceur
+  // Helper: combine posts + stories + mentions webhook pour un influenceur
   const getAllContent = (influencer: CampaignInfluencer): ScrapedPost[] => {
     const posts = influencer.scrapedPosts || [];
     const storiesAsPosts = (influencer.scrapedStories || []).map(s => storyToPost(s, influencer.username));
-    return [...posts, ...storiesAsPosts];
+
+    // Inclure les mentions webhook qui correspondent à cet influenceur
+    const influencerMentions = mentions.filter(m =>
+      m.influencer_username?.toLowerCase() === influencer.username.toLowerCase() ||
+      m.mentioned_by_username?.toLowerCase() === influencer.username.toLowerCase()
+    );
+    const mentionsAsPosts = influencerMentions.map(m => mentionToPost(m));
+
+    return [...posts, ...storiesAsPosts, ...mentionsAsPosts];
   };
 
   // Calculer les stats par influenceur (CRM) avec attribution intelligente
@@ -489,7 +551,7 @@ export default function Dashboard() {
         confidence,
       };
     });
-  }, [selectedCampaign, attributionResult]);
+  }, [selectedCampaign, attributionResult, mentions, campaignStats]);
 
   // Totaux pour le tableau CRM
   const influencerTotals = useMemo(() => {
@@ -638,7 +700,7 @@ export default function Dashboard() {
           visitorsBaseline: item.inCampaign ? visitorsBaseline : null,
         };
       });
-  }, [filteredOrders, dailyMetrics, campaignPeriod, selectedCampaign, baselineData]);
+  }, [filteredOrders, dailyMetrics, campaignPeriod, selectedCampaign, baselineData, mentions]);
 
   // Trouver les index de début et fin de campagne pour le graphique
   const campaignChartRange = useMemo(() => {
@@ -708,7 +770,7 @@ export default function Dashboard() {
     });
 
     return markers.sort((a, b) => a.date.localeCompare(b.date));
-  }, [selectedCampaign]);
+  }, [selectedCampaign, mentions]);
 
   const formatNumber = (num: number): string => {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';

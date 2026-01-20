@@ -5,6 +5,70 @@ const INSTAGRAM_APP_ID = process.env.INSTAGRAM_APP_ID;
 const INSTAGRAM_APP_SECRET = process.env.INSTAGRAM_APP_SECRET;
 const REDIRECT_URI = 'https://datafluence.vercel.app/api/auth/instagram/callback';
 
+// Messages d'erreur explicites pour l'utilisateur
+const ERROR_MESSAGES: Record<string, string> = {
+  'not_business_account': 'Votre compte Instagram doit être un compte Professionnel (Créateur ou Business). Allez dans Paramètres Instagram → Compte → Passer à un compte professionnel.',
+  'permissions_denied': 'Vous devez accepter toutes les permissions demandées pour connecter votre compte.',
+  'token_exchange_failed': 'Échec de connexion. Veuillez réessayer.',
+  'profile_fetch_failed': 'Impossible de récupérer votre profil Instagram. Vérifiez que votre compte est bien professionnel.',
+  'invalid_token': 'Token invalide. Veuillez reconnecter votre compte Instagram.',
+  'rate_limited': 'Trop de tentatives. Veuillez attendre quelques minutes avant de réessayer.',
+};
+
+// Analyser les erreurs Instagram API pour donner un message clair
+function parseInstagramError(errorData: any): { code: string; message: string } {
+  try {
+    const error = typeof errorData === 'string' ? JSON.parse(errorData) : errorData;
+
+    // Erreur de type OAuthException ou IGApiException
+    if (error.error?.type === 'OAuthException' || error.error?.type === 'IGApiException') {
+      const code = error.error?.code;
+      const message = error.error?.message || '';
+
+      // Code 190 = Invalid token (souvent compte non-business)
+      if (code === 190) {
+        if (message.includes('business') || message.includes('creator') || message.includes('professional')) {
+          return { code: 'not_business_account', message: ERROR_MESSAGES.not_business_account };
+        }
+        return { code: 'invalid_token', message: ERROR_MESSAGES.invalid_token };
+      }
+
+      // Code 10 = Permission denied
+      if (code === 10) {
+        return { code: 'permissions_denied', message: ERROR_MESSAGES.permissions_denied };
+      }
+
+      // Code 4 = Rate limited
+      if (code === 4) {
+        return { code: 'rate_limited', message: ERROR_MESSAGES.rate_limited };
+      }
+
+      // Code 100 = Invalid parameter ou Unsupported request (souvent compte personnel)
+      if (code === 100) {
+        // "Unsupported request" = compte personnel qui essaie d'utiliser l'API Graph
+        if (message.toLowerCase().includes('unsupported')) {
+          return { code: 'not_business_account', message: ERROR_MESSAGES.not_business_account };
+        }
+        if (message.includes('user')) {
+          return { code: 'not_business_account', message: ERROR_MESSAGES.not_business_account };
+        }
+      }
+    }
+
+    // Erreur générique avec message
+    if (error.error_message) {
+      if (error.error_message.includes('business') || error.error_message.includes('creator')) {
+        return { code: 'not_business_account', message: ERROR_MESSAGES.not_business_account };
+      }
+      return { code: 'unknown', message: error.error_message };
+    }
+
+    return { code: 'unknown', message: JSON.stringify(error) };
+  } catch {
+    return { code: 'unknown', message: String(errorData) };
+  }
+}
+
 interface TokenResponse {
   access_token: string;
   user_id: number;
@@ -72,13 +136,12 @@ export async function GET(request: Request) {
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
       console.error('Token exchange failed:', tokenResponse.status, errorText);
-      let errorDetail = 'token_exchange_failed';
-      try {
-        const errorJson = JSON.parse(errorText);
-        errorDetail = errorJson.error_message || errorJson.error?.message || errorDetail;
-      } catch {}
+
+      const parsedError = parseInstagramError(errorText);
+      console.error('[Instagram OAuth] Parsed error:', parsedError);
+
       return NextResponse.redirect(
-        `https://datafluence.vercel.app/onboarding?instagram_error=${encodeURIComponent(errorDetail)}`
+        `https://datafluence.vercel.app/onboarding?instagram_error=${encodeURIComponent(parsedError.message)}&instagram_error_code=${parsedError.code}`
       );
     }
 
@@ -107,8 +170,17 @@ export async function GET(request: Request) {
     if (!userResponse.ok) {
       const errorData = await userResponse.text();
       console.error('Failed to get user profile:', errorData);
+
+      const parsedError = parseInstagramError(errorData);
+      console.error('[Instagram OAuth] Profile fetch error:', parsedError);
+
+      // Si c'est une erreur de compte non-business, on donne un message clair
+      const errorMessage = parsedError.code === 'not_business_account'
+        ? parsedError.message
+        : ERROR_MESSAGES.profile_fetch_failed;
+
       return NextResponse.redirect(
-        'https://datafluence.vercel.app/onboarding?instagram_error=profile_fetch_failed'
+        `https://datafluence.vercel.app/onboarding?instagram_error=${encodeURIComponent(errorMessage)}&instagram_error_code=${parsedError.code}`
       );
     }
 

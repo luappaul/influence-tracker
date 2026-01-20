@@ -38,6 +38,7 @@ function OnboardingContent() {
   const [instagramUsername, setInstagramUsername] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [instagramError, setInstagramError] = useState<string | null>(null);
 
   // Wait for auth to be ready
   useEffect(() => {
@@ -87,7 +88,8 @@ function OnboardingContent() {
 
     if (error) {
       console.error('Instagram OAuth error:', error);
-      alert('Erreur lors de la connexion Instagram. Veuillez réessayer.');
+      setInstagramError(decodeURIComponent(error));
+      setCurrentStep('social'); // S'assurer qu'on est sur l'étape social pour voir l'erreur
       window.history.replaceState({}, '', '/onboarding');
     }
   }, [searchParams]);
@@ -330,6 +332,27 @@ function OnboardingContent() {
                 Suivez la croissance de vos followers et l'engagement généré par vos campagnes.
               </p>
             </div>
+
+            {/* Message d'erreur Instagram */}
+            {instagramError && (
+              <div className="max-w-md mx-auto mb-4 p-4 rounded-lg bg-danger/10 border border-danger/30">
+                <div className="flex items-start gap-3">
+                  <div className="w-6 h-6 rounded-full bg-danger/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-danger text-sm font-bold">!</span>
+                  </div>
+                  <div>
+                    <p className="font-medium text-danger text-sm">Connexion Instagram échouée</p>
+                    <p className="text-sm text-foreground-secondary mt-1">{instagramError}</p>
+                    <button
+                      onClick={() => setInstagramError(null)}
+                      className="text-xs text-accent hover:underline mt-2"
+                    >
+                      Fermer
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-3 max-w-md mx-auto">
               {/* Instagram */}
