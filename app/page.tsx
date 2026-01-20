@@ -13,6 +13,14 @@ import {
   AttributionResult,
 } from '@/lib/attribution';
 import {
+  calculateDiD,
+  calculateITS,
+  calculateCausalImpact,
+  combineConfidenceScores,
+  CombinedConfidence,
+  HourlyDataPoint,
+} from '@/lib/attribution-advanced';
+import {
   Loader2,
   ShoppingBag,
   Package,
@@ -455,6 +463,80 @@ export default function Dashboard() {
       campaignPeriod.start,
       campaignPeriod.end
     );
+  }, [selectedCampaign, campaignPeriod, orders]);
+
+  // Attribution avancée avec 3 méthodes statistiques
+  const advancedAttribution = useMemo((): CombinedConfidence | null => {
+    if (!selectedCampaign || !campaignPeriod || orders.length === 0) return null;
+
+    // Préparer les données horaires
+    const hourlyMap = new Map<number, { revenue: number; orders: number }>();
+    const campaignStart = campaignPeriod.start.getTime();
+    const campaignEnd = campaignPeriod.end.getTime();
+
+    // Initialiser 72 heures (3 jours)
+    const hoursToAnalyze = Math.min(72, Math.ceil((campaignEnd - campaignStart) / (1000 * 60 * 60)));
+    for (let h = 0; h < hoursToAnalyze; h++) {
+      hourlyMap.set(h, { revenue: 0, orders: 0 });
+    }
+
+    // Remplir avec les commandes
+    orders.forEach(order => {
+      const orderTime = new Date(order.created_at).getTime();
+      if (orderTime >= campaignStart && orderTime <= campaignEnd) {
+        const hourIndex = Math.floor((orderTime - campaignStart) / (1000 * 60 * 60));
+        if (hourIndex >= 0 && hourIndex < hoursToAnalyze) {
+          const current = hourlyMap.get(hourIndex) || { revenue: 0, orders: 0 };
+          current.revenue += parseFloat(order.total_price || '0');
+          current.orders += 1;
+          hourlyMap.set(hourIndex, current);
+        }
+      }
+    });
+
+    // Convertir en tableau
+    const hourlyData: HourlyDataPoint[] = [];
+    for (let h = 0; h < hoursToAnalyze; h++) {
+      const data = hourlyMap.get(h) || { revenue: 0, orders: 0 };
+      hourlyData.push({
+        hour: h,
+        timestamp: new Date(campaignStart + h * 60 * 60 * 1000),
+        revenue: data.revenue,
+        orders: data.orders,
+      });
+    }
+
+    if (hourlyData.length < 12) return null; // Pas assez de données
+
+    // Trouver le premier post produit
+    let firstPostHour = 6; // Par défaut
+    selectedCampaign.influencers.forEach((inf: CampaignInfluencer) => {
+      inf.scrapedPosts?.forEach((post: ScrapedPost) => {
+        if (post.mentionsProduct === true) {
+          const postTime = new Date(post.timestamp).getTime();
+          const hourIndex = Math.floor((postTime - campaignStart) / (1000 * 60 * 60));
+          if (hourIndex >= 0 && hourIndex < firstPostHour) {
+            firstPostHour = Math.max(2, hourIndex); // Au moins 2h de données avant
+          }
+        }
+      });
+    });
+
+    // Calculer la baseline (moyenne des heures avant le premier post)
+    const prePostData = hourlyData.slice(0, firstPostHour);
+    const avgBaseline = prePostData.length > 0
+      ? prePostData.reduce((s, d) => s + d.revenue, 0) / prePostData.length
+      : hourlyData.reduce((s, d) => s + d.revenue, 0) / hourlyData.length;
+
+    const baseline = hourlyData.map(() => avgBaseline);
+
+    // Calculer les 3 méthodes
+    const did = calculateDiD(hourlyData, baseline, firstPostHour);
+    const its = calculateITS(hourlyData, baseline, firstPostHour);
+    const causal = calculateCausalImpact(hourlyData, firstPostHour, Math.min(24, firstPostHour));
+
+    // Combiner les scores
+    return combineConfidenceScores(did, its, causal);
   }, [selectedCampaign, campaignPeriod, orders]);
 
   // Helper: combine posts + stories + mentions webhook pour un influenceur
@@ -916,15 +998,24 @@ export default function Dashboard() {
                 Impact de la campagne : {selectedCampaign.name}
               </h3>
             </div>
-            {attributionResult && (
+            {(advancedAttribution || attributionResult) && (
               <div className="flex items-center gap-2 text-sm">
                 <span className="text-foreground-secondary">Confiance:</span>
-                <span className={`font-semibold ${
-                  attributionResult.confidenceScore > 0.7 ? 'text-success' :
-                  attributionResult.confidenceScore > 0.4 ? 'text-warning' : 'text-danger'
-                }`}>
-                  {(attributionResult.confidenceScore * 100).toFixed(0)}%
-                </span>
+                {advancedAttribution ? (
+                  <span className={`font-semibold ${
+                    advancedAttribution.combinedScore >= 50 ? 'text-success' :
+                    advancedAttribution.combinedScore >= 30 ? 'text-warning' : 'text-danger'
+                  }`}>
+                    {advancedAttribution.combinedScore}%
+                  </span>
+                ) : attributionResult && (
+                  <span className={`font-semibold ${
+                    attributionResult.confidenceScore > 0.7 ? 'text-success' :
+                    attributionResult.confidenceScore > 0.4 ? 'text-warning' : 'text-danger'
+                  }`}>
+                    {(attributionResult.confidenceScore * 100).toFixed(0)}%
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -1090,6 +1181,65 @@ export default function Dashboard() {
                     </>
                   );
                 })()}
+              </div>
+            </div>
+          )}
+
+          {/* Méthodologie d'attribution avancée */}
+          {advancedAttribution && (
+            <div className="mt-4 pt-4 border-t border-accent/20">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium text-foreground-secondary">
+                  Validation statistique
+                </p>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    advancedAttribution.combinedScore >= 50 ? 'bg-success' :
+                    advancedAttribution.combinedScore >= 30 ? 'bg-warning' : 'bg-foreground-secondary'
+                  }`} />
+                  <span className={`text-sm font-semibold ${
+                    advancedAttribution.combinedScore >= 50 ? 'text-success' :
+                    advancedAttribution.combinedScore >= 30 ? 'text-warning' : 'text-foreground-secondary'
+                  }`}>
+                    {advancedAttribution.combinedScore}% confiance
+                  </span>
+                </div>
+              </div>
+
+              {/* Barres de progression des 3 méthodes */}
+              <div className="space-y-2">
+                {advancedAttribution.methods.map((method, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className="w-24 text-xs text-foreground-secondary truncate" title={method.name}>
+                      {method.name === 'Difference-in-Differences' ? 'DiD' :
+                       method.name === 'Interrupted Time Series' ? 'ITS' :
+                       method.name === 'Causal Impact' ? 'Causal' : method.name}
+                    </div>
+                    <div className="flex-1 h-1.5 bg-accent/10 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          method.score >= 50 ? 'bg-success' :
+                          method.score >= 30 ? 'bg-warning' : 'bg-foreground-secondary'
+                        }`}
+                        style={{ width: `${Math.min(100, method.score)}%` }}
+                      />
+                    </div>
+                    <div className="w-8 text-xs text-right text-foreground-secondary">
+                      {method.score}%
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Interprétation */}
+              <p className="mt-3 text-xs text-foreground-secondary italic">
+                {advancedAttribution.interpretation}
+              </p>
+
+              {/* Note méthodologique discrète */}
+              <div className="mt-2 flex items-start gap-1.5 text-[10px] text-foreground-secondary/60">
+                <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                <span>3 méthodes économétriques indépendantes (DiD, ITS, Causal Impact) pour validation croisée</span>
               </div>
             </div>
           )}
