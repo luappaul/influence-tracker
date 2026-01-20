@@ -10,6 +10,7 @@ const REDIRECT_URI = process.env.NODE_ENV === 'production'
 const SCOPES = [
   'instagram_business_basic',
   'instagram_business_manage_insights',
+  'instagram_business_manage_comments', // Requis pour mentioned_media (stories où on est tagué)
 ].join(',');
 
 export async function GET() {
