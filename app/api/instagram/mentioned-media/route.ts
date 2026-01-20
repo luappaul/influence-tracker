@@ -29,17 +29,19 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // D'abord récupérer l'ID utilisateur si non fourni
+    // D'abord récupérer l'ID utilisateur et vérifier les permissions
     let igUserId = userId;
-    if (!igUserId) {
-      const meResponse = await fetch(
-        `https://graph.instagram.com/v21.0/me?fields=id,username&access_token=${accessToken}`
-      );
-      if (meResponse.ok) {
-        const meData = await meResponse.json();
-        igUserId = meData.id;
-        console.log('[Mentioned Media] Got user ID:', igUserId);
-      }
+    const meResponse = await fetch(
+      `https://graph.instagram.com/v21.0/me?fields=id,username,account_type,media_count&access_token=${accessToken}`
+    );
+
+    if (meResponse.ok) {
+      const meData = await meResponse.json();
+      igUserId = igUserId || meData.id;
+      console.log('[Mentioned Media] User info:', JSON.stringify(meData, null, 2));
+    } else {
+      const meError = await meResponse.text();
+      console.error('[Mentioned Media] Failed to get user info:', meError);
     }
 
     if (!igUserId) {
@@ -49,12 +51,42 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Appeler l'API Instagram pour récupérer les médias mentionnés
-    // Documentation: https://developers.facebook.com/docs/instagram-api/reference/ig-user/mentioned_media
-    // Note: Nécessite un compte Business/Creator et la permission instagram_manage_comments
-    const response = await fetch(
-      `https://graph.instagram.com/v21.0/${igUserId}/mentioned_media?fields=id,media_type,media_url,thumbnail_url,caption,timestamp,permalink,username,owner{id,username}&access_token=${accessToken}`
-    );
+    // Essayer d'abord avec graph.facebook.com (API traditionnelle)
+    // puis fallback sur graph.instagram.com
+    const endpoints = [
+      `https://graph.facebook.com/v21.0/${igUserId}/mentioned_media?fields=id,media_type,caption,timestamp,permalink&access_token=${accessToken}`,
+      `https://graph.instagram.com/v21.0/${igUserId}/mentioned_media?fields=id,media_type,caption,timestamp,permalink&access_token=${accessToken}`,
+    ];
+
+    let response: Response | null = null;
+    let lastError = '';
+
+    for (const endpoint of endpoints) {
+      console.log('[Mentioned Media] Trying endpoint:', endpoint.split('?')[0]);
+      response = await fetch(endpoint);
+
+      if (response.ok) {
+        console.log('[Mentioned Media] Success with endpoint:', endpoint.split('?')[0]);
+        break;
+      } else {
+        lastError = await response.text();
+        console.log('[Mentioned Media] Failed:', lastError);
+        response = null;
+      }
+    }
+
+    if (!response) {
+      // Si aucun endpoint n'a fonctionné, retourner l'erreur détaillée
+      return NextResponse.json(
+        {
+          error: 'mentioned_media non disponible',
+          details: lastError,
+          hint: 'Cette fonctionnalité nécessite un compte Instagram Business/Creator connecté à une Page Facebook, et la permission instagram_manage_comments.',
+          userId: igUserId,
+        },
+        { status: 400 }
+      );
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
