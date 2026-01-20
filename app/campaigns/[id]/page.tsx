@@ -1045,10 +1045,10 @@ export default function CampaignDetailPage() {
                       <Button
                         size="sm"
                         variant="secondary"
-                        onClick={() => scrapeAll(influencer)}
+                        onClick={() => scrapePosts(influencer)}
                         disabled={isScraping}
                         className="h-7 w-7 p-0"
-                        title="Actualiser posts + stories"
+                        title="Actualiser les posts"
                       >
                         {isScraping ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
