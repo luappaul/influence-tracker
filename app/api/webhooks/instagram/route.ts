@@ -160,24 +160,34 @@ async function saveStoryMention(data: {
   cdnUrl: string;
   timestamp: Date;
 }) {
+  console.log('[Instagram Webhook] saveStoryMention called with:', {
+    recipientUserId: data.recipientUserId,
+    senderId: data.senderId,
+    messageId: data.messageId?.substring(0, 20) + '...',
+  });
+
   try {
     const supabase = await createClient();
 
     // Chercher l'utilisateur qui correspond à ce recipientUserId
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('id, instagram_username, instagram_access_token')
       .eq('instagram_user_id', data.recipientUserId)
       .single();
 
-    if (!profile) {
-      console.log('[Instagram Webhook] No user found for Instagram ID:', data.recipientUserId);
-      return;
-    }
+    console.log('[Instagram Webhook] Profile lookup result:', {
+      found: !!profile,
+      error: profileError?.message,
+      recipientUserId: data.recipientUserId,
+    });
+
+    // Même si on ne trouve pas le profil, on sauvegarde la mention
+    let userId = profile?.id || null;
+    let senderUsername: string | null = null;
 
     // Récupérer les infos du sender (qui a fait la story)
-    let senderUsername: string | null = null;
-    if (profile.instagram_access_token) {
+    if (profile?.instagram_access_token) {
       try {
         const response = await fetch(
           `https://graph.instagram.com/v21.0/${data.senderId}?fields=username&access_token=${profile.instagram_access_token}`
@@ -186,20 +196,21 @@ async function saveStoryMention(data: {
           const senderData = await response.json();
           senderUsername = senderData.username;
           console.log('[Instagram Webhook] Sender username:', senderUsername);
+        } else {
+          console.log('[Instagram Webhook] Could not fetch sender, status:', response.status);
         }
       } catch (e) {
-        console.log('[Instagram Webhook] Could not fetch sender info');
+        console.log('[Instagram Webhook] Could not fetch sender info:', e);
       }
     }
 
     // Calculer l'expiration (stories = 24h)
     const expiresAt = new Date(data.timestamp.getTime() + 24 * 60 * 60 * 1000).toISOString();
 
-    // Insérer la mention
-    const { error } = await supabase.from('instagram_mentions').insert({
-      user_id: profile.id,
+    const insertData = {
+      user_id: userId,
       instagram_user_id: data.recipientUserId,
-      media_id: data.messageId, // On utilise messageId comme identifiant unique
+      media_id: data.messageId,
       media_type: 'story',
       media_url: data.cdnUrl,
       mentioned_by_user_id: data.senderId,
@@ -213,12 +224,17 @@ async function saveStoryMention(data: {
         messageId: data.messageId,
         cdnUrl: data.cdnUrl,
       },
-    });
+    };
+
+    console.log('[Instagram Webhook] Inserting mention:', JSON.stringify(insertData, null, 2));
+
+    // Insérer la mention
+    const { error } = await supabase.from('instagram_mentions').insert(insertData);
 
     if (error) {
-      console.log('[Instagram Webhook] Could not save story mention:', error.message);
+      console.error('[Instagram Webhook] INSERT ERROR:', error.message, error.details, error.hint);
     } else {
-      console.log('[Instagram Webhook] Story mention saved successfully');
+      console.log('[Instagram Webhook] Story mention saved successfully!');
     }
 
   } catch (error) {
